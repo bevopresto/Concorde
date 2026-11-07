@@ -1,0 +1,7 @@
+Concorde uses these free, openly licensed assets.
+
+Fraunces (headings): SIL Open Font License 1.1. Copyright the Fraunces Project Authors.
+Plus Jakarta Sans (interface text): SIL Open Font License 1.1. Copyright the Plus Jakarta Sans Project Authors.
+Lucide icons: ISC License. Copyright the Lucide Contributors.
+
+Fonts were packaged via Fontsource; icons via the lucide-static package.

@@ -1,0 +1,20 @@
+Concorde v0.14.0
+
+To open it: unzip this folder, then double-click index.html. It opens in your browser. Nothing to install.
+
+LIVE MODE (default when you open the file from your computer): real sign-in, chats, photos, invites and Tell the Tower, through your Supabase project.
+  1. Enter your email. You get a code by email. Enter it. (First time only: choose your name; the very first person needs no invite code.)
+  2. To try chat you need a second person: invite a friend from Settings > Invite a friend (needs email sending set up, see backend/SETUP.md),
+     or sign in on a second browser (or a private window) with another email you own.
+  3. Calls: open a chat and press Start call (groups) or the phone / video buttons (one-to-one). Your browser asks to use the
+     microphone the first time: choose Allow. To test with one computer, use a second window (private window, different email).
+     Needs the LiveKit pass function and the updated schema, see backend/SETUP.md.
+
+DEMO MODE (made-up friends and a pretend call, nothing sent anywhere): open index.html?mock  (add ?mock to the address).
+  In a browser address bar that looks like  file:///.../index.html?mock
+
+Version number and date are in the bottom-right corner. They live in js/version.js.
+
+
+WINDOWS APP
+The installer is built by GitHub. Step-by-step instructions are in desktop/README.md.

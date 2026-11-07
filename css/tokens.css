@@ -1,0 +1,101 @@
+/*
+  Concorde design tokens.
+  Layout idea: three soft cards (conversations | chat | details) floating on a lavender sky.
+  Neumorphism lives in surfaces, inputs, toggles and call buttons. Text and icons stay high-contrast,
+  and anything active uses the violet-to-pink accent, never shadow alone.
+*/
+
+@font-face {
+  font-family: 'Fraunces';
+  src: url('../assets/fonts/fraunces-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  src: url('../assets/fonts/plus-jakarta-sans-latin-wght-normal.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --font-ui: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+
+  /* Surfaces */
+  --bg: #E9ECF5;
+  --surface: #EDF0F8;
+  --surface-sunk: #E4E8F3;
+
+  /* Text. --ink-2 is slightly darker than the first palette so small text stays readable. */
+  --ink: #2B2A4C;
+  --ink-2: #5F6385;
+  --ink-3: #8A8DAA;
+
+  /* Accent family: violet into pink */
+  --accent-a: #7C5CFA;
+  --accent-b: #E0549F;
+  --accent-glow: #F06BA8;
+  --accent-grad: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  --bubble-grad: linear-gradient(135deg, #6544EA, #A94CC2);
+  --accent-soft: rgba(124, 92, 250, 0.14);
+
+  /* Status */
+  --good: #3FBF8F;
+  --warn: #F2A93B;
+
+  /* Neumorphic light and shade */
+  --shadow-dark: rgba(163, 170, 201, 0.62);
+  --shadow-light: rgba(255, 255, 255, 0.95);
+  --raise-1: 4px 4px 10px var(--shadow-dark), -4px -4px 10px var(--shadow-light);
+  --raise-2: 8px 8px 20px var(--shadow-dark), -8px -8px 20px var(--shadow-light);
+  --raise-3: 14px 14px 30px var(--shadow-dark), -12px -12px 28px var(--shadow-light);
+  --sunk-1: inset 3px 3px 7px var(--shadow-dark), inset -3px -3px 7px var(--shadow-light);
+  --sunk-2: inset 5px 5px 11px var(--shadow-dark), inset -5px -5px 11px var(--shadow-light);
+
+  /* Shape */
+  --r-card: 30px;
+  --r-lg: 22px;
+  --r-md: 16px;
+  --r-sm: 12px;
+
+  /* Sky behind everything */
+  --sky:
+    radial-gradient(900px 620px at -6% -12%, rgba(255, 196, 160, 0.6), transparent 62%),
+    radial-gradient(900px 640px at 106% -14%, rgba(186, 128, 255, 0.5), transparent 62%),
+    radial-gradient(760px 520px at 102% 112%, rgba(240, 107, 168, 0.22), transparent 62%),
+    linear-gradient(180deg, #E3E7F7, #EEF0F8);
+
+  --ring: rgba(124, 92, 250, 0.6);
+  --scrim: rgba(60, 56, 110, 0.28);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #1A1B2E;
+  --surface: #212339;
+  --surface-sunk: #181A2C;
+
+  --ink: #ECEBFA;
+  --ink-2: #A9ACCB;
+  --ink-3: #6F7396;
+
+  --accent-soft: rgba(124, 92, 250, 0.22);
+
+  --shadow-dark: rgba(7, 8, 20, 0.7);
+  --shadow-light: rgba(120, 126, 190, 0.13);
+
+  --sky:
+    radial-gradient(900px 620px at -6% -12%, rgba(242, 160, 123, 0.13), transparent 62%),
+    radial-gradient(900px 640px at 106% -14%, rgba(124, 92, 250, 0.3), transparent 62%),
+    radial-gradient(760px 520px at 102% 112%, rgba(224, 84, 159, 0.16), transparent 62%),
+    linear-gradient(180deg, #171829, #1D1E35);
+
+  --ring: rgba(170, 146, 255, 0.8);
+  --scrim: rgba(6, 6, 16, 0.55);
+}

@@ -1,0 +1,21 @@
+{
+  "name": "concorde",
+  "productName": "Concorde",
+  "version": "0.13.5",
+  "description": "Concorde: a small, friendly chat and call app for friends.",
+  "author": "Concorde",
+  "main": "main.js",
+  "scripts": {
+    "prepare-app": "node scripts/prepare.js",
+    "start": "node scripts/prepare.js && electron .",
+    "dist": "node scripts/prepare.js && electron-builder --win --publish never",
+    "release": "node scripts/prepare.js && electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.0"
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.0.0"
+  }
+}

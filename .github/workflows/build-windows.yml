@@ -1,0 +1,28 @@
+name: Build Windows app
+
+# Runs when you change js/version.js (every new version), or when you press "Run workflow" on the Actions page.
+on:
+  push:
+    branches: [main]
+    paths: ['js/version.js']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        working-directory: desktop
+        run: npm install
+      - name: Build the installer and publish it as a release
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release

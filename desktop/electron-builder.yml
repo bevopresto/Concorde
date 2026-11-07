@@ -1,0 +1,32 @@
+appId: com.concorde.app
+productName: Concorde
+copyright: Concorde
+directories:
+  output: dist
+files:
+  - main.js
+  - preload.js
+  - app/**/*
+  - assets/**/*
+  - package.json
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+  artifactName: Concorde-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Concorde
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+publish:
+  provider: github
+  releaseType: release
