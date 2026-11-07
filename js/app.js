@@ -507,7 +507,7 @@
     var re = new RegExp('(^|\\W)@(' + names.map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')(?![\\w])', 'gi');
     return esc(raw).replace(re, function (_, pre, nm) {
       var hot = nm.toLowerCase() === me.toLowerCase() || nm.toLowerCase() === 'everyone';
-      return pre + '<span class="mention' + (hot ? ' me' : '') + '">@' + nm + '</span>';
+      return pre + '<span class="mention' + (hot ? ' me' : '') + '">' + nm + '</span>';
     });
   }
   /* Links become clickable (they open in your normal browser). noLinks keeps plain text, for banners. */
