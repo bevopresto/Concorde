@@ -21,8 +21,22 @@ jobs:
       - name: Install
         working-directory: desktop
         run: npm install
-      - name: Build the installer and publish it as a release
+      - name: Build the installer
         working-directory: desktop
+        run: npm run dist
+      - name: Publish it as a release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run release
+        run: |
+          $v = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).version
+          Get-ChildItem desktop/dist | Select-Object Name, Length | Format-Table | Out-String | Write-Host
+          Write-Host "Publishing v$v"
+          gh release delete "v$v" --cleanup-tag --yes 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create "v$v" `
+            "desktop/dist/Concorde-Setup-$v.exe" `
+            "desktop/dist/Concorde-Setup-$v.exe.blockmap" `
+            "desktop/dist/latest.yml" `
+            --target "${{ github.sha }}" --title "Concorde v$v" --notes "Windows installer for Concorde v$v." --latest
+          if ($LASTEXITCODE -ne 0) { exit 1 }
