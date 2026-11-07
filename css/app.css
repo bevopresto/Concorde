@@ -1126,3 +1126,57 @@ body.desktop .tb-btn { -webkit-app-region: no-drag; }
 /* An open dropdown sits fully on top of everything below it. */
 .select-wrap:has(.select-list:not([hidden])) { z-index: 30; }
 .select-list { background: var(--surface); isolation: isolate; }
+
+/* With the title bar showing, pop-ups that drop in from the top start below it instead of hiding behind it. */
+body.framed .mention-banner, body.framed .ring-box { top: 56px; }
+
+/* Hover note on a reaction: who reacted. */
+.react { position: relative; }
+.react[data-who]::after { content: attr(data-who); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%) translateY(4px); opacity: 0; pointer-events: none; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; padding: 6px 11px; border-radius: 10px; font-size: 12.5px; font-weight: 600; background: var(--ink, #2b2540); color: var(--surface, #fff); box-shadow: 0 6px 18px rgba(30, 20, 60, .28); transition: opacity .12s ease, transform .12s ease; z-index: 40; }
+.react[data-who]:hover::after, .react[data-who]:focus-visible::after { opacity: 1; transform: translateX(-50%); transition-delay: .25s; }
+
+/* Links and YouTube cards inside messages */
+.msg-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; word-break: break-word; }
+.msg-link:hover { text-decoration-thickness: 2.5px; }
+.yt-card { margin-top: 8px; width: min(360px, 100%); border-radius: 14px; overflow: hidden; background: #000; position: relative; }
+.yt-play { all: unset; display: block; position: relative; width: 100%; aspect-ratio: 16 / 9; cursor: pointer; }
+.yt-play img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.yt-btn { position: absolute; inset: 0; margin: auto; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: rgba(20, 15, 40, .72); color: #fff; backdrop-filter: blur(4px); transition: transform .15s ease; }
+.yt-play:hover .yt-btn, .yt-play:focus-visible .yt-btn { transform: scale(1.1); }
+.yt-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
+.yt-open { display: block; padding: 7px 12px; font-size: 12.5px; background: rgba(20, 15, 40, .86); color: #fff; text-decoration: none; }
+.yt-open:hover { text-decoration: underline; }
+
+/* One person's volume in a call */
+.pvol { position: fixed; z-index: 120; width: 280px; padding: 14px 16px 12px; border-radius: 20px; background: var(--surface); box-shadow: 0 18px 50px rgba(40, 25, 90, .3); display: grid; gap: 10px; }
+.pvol-head { display: flex; align-items: center; gap: 10px; } .pvol-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pvol-row { display: grid; grid-template-columns: auto 1fr 44px; align-items: center; gap: 10px; } .pvol-row output { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+.pvol-reset { justify-self: start; } .pvol-note { margin: 0; font-size: 12px; color: var(--ink-2); }
+
+/* Tell the Tower: screenshots */
+.tower-new { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.tower-shots { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+.tower-shots[hidden] { display: none; }
+.tshot-chip { position: relative; width: 84px; height: 62px; border-radius: 12px; overflow: hidden; background: rgba(120, 100, 170, .15); }
+.tshot-chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tshot-chip button { all: unset; cursor: pointer; position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: rgba(20, 15, 40, .72); color: #fff; }
+.tshots { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 2px; }
+.tshot { all: unset; cursor: zoom-in; width: 132px; height: 92px; border-radius: 12px; overflow: hidden; background: rgba(120, 100, 170, .15); }
+.tshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tshot:focus-visible { outline: 2px solid var(--accent, #7a62d6); outline-offset: 2px; }
+.peek { position: fixed; inset: 0; z-index: 260; display: grid; place-items: center; background: rgba(15, 10, 30, .82); cursor: zoom-out; }
+.peek img { max-width: 92vw; max-height: 88vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+.peek button { position: absolute; top: 52px; right: 22px; }
+
+/* GIF library */
+.popover.gifs { width: 360px; max-height: min(520px, 72vh); display: flex; flex-direction: column; }
+.popover.gifs .gif-grid { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; height: 380px; overflow-y: auto; scrollbar-width: thin; grid-template-columns: none; }
+.gif-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.gif-grid button { height: auto; width: 100%; padding: 0; display: block; background: rgba(120, 100, 170, .15); }
+.gif-grid button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gif-empty, .gif-more { flex: 1; width: 100%; text-align: center; color: var(--ink-2, #7d7494); font-size: 13.5px; padding: 28px 12px; margin: 0; }
+.gif-more { padding: 10px 0; }
+.gif-note { margin: 8px 2px 0; font-size: 11px; letter-spacing: .04em; color: var(--ink-2, #7d7494); text-align: right; }
+.gif-msg { position: relative; display: inline-block; max-width: min(300px, 100%); border-radius: 16px; overflow: hidden; background: rgba(120, 100, 170, .15); line-height: 0; }
+.gif-img { display: block; width: 100%; max-height: 300px; object-fit: cover; }
+.gif-msg em { position: absolute; left: 8px; bottom: 8px; font-style: normal; font-size: 10.5px; font-weight: 800; line-height: 1.4; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, .45); color: #fff; }

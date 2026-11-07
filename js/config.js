@@ -10,6 +10,7 @@ window.Concorde = window.Concorde || {};
     supabaseUrl: 'https://qvyzwndrtkxslxqrqija.supabase.co',
     supabaseAnonKey: 'sb_publishable_mkktdoK6w81OatKAQTgzwQ_1kJ62D7A',
     livekitTokenFunction: 'smooth-function',
+    gifSearchFunction: 'gif-search',
     livekitUrl: 'wss://concorde-mkqau39c.livekit.cloud'
   };
 })();

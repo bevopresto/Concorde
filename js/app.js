@@ -22,6 +22,8 @@
     var w = name.split(' ').filter(function (x) { return x.toLowerCase() !== 'the'; });
     return initial(w[0] || name);
   }
+  /* What shows under someone's name: their own status message if they set one, otherwise Online / Away / etc. Safe to place in HTML. */
+  function statusLine(p) { return p && p.note ? esc(p.note) : statusText(p && p.status); }
   function statusText(s) { return { online: 'Online', away: 'Away', dnd: 'Do not disturb', invisible: 'Appear offline' }[s] || 'Offline'; }
   function dotKey(s) { return s === 'invisible' || !s ? 'offline' : s; }
   function quiet() { return S.getCurrentUser().status === 'dnd'; }
@@ -222,7 +224,7 @@
   function renderMe() {
     var me = S.getCurrentUser();
     $('#me-card').innerHTML = '<button class="me-btn" data-action="status-open" aria-haspopup="menu" aria-label="Your status: ' + statusText(me.status) + '. Change status">' + avatar(me, 44, { dot: true }) +
-      '<span class="who"><b>' + esc(me.name) + '</b><span>' + statusText(me.status) + '</span></span></button>' +
+      '<span class="who"><b>' + esc(me.name) + '</b><span>' + statusLine(me) + '</span></span></button>' +
       '<button class="btn-round sm" data-action="settings-open" aria-label="Settings">' + ico('settings') + '</button>';
   }
 
@@ -318,7 +320,7 @@
     if (!currentConv()) return;
     var c = currentConv(), e = entity(c), call = S.getCall(c.id), right = '';
     var sub;
-    if (c.type === 'direct') sub = statusText(person(c.with).status);
+    if (c.type === 'direct') sub = person(c.with).note || statusText(person(c.with).status);
     else {
       var online = c.members.filter(function (m) { return person(m).status === 'online'; }).length;
       sub = c.members.length + ' members · ' + online + ' online';
@@ -500,18 +502,40 @@
     return m.type === 'image' ? (m.images && m.images.length > 1 ? m.images.length + ' photos' : 'Photo') : m.type === 'file' ? m.file.name : m.type === 'gif' ? 'GIF' : m.type === 'link' ? m.link.title : m.text;
   }
   /* @names inside messages become small chips. A mention of you (or @everyone) is highlighted more strongly. */
-  function richText(t) {
+  function mentionize(raw) {
     var me = S.getCurrentUser().name, names = Object.keys(C.data.people).map(function (id) { return C.data.people[id].name; }).concat('everyone');
     var re = new RegExp('(^|\\W)@(' + names.map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')(?![\\w])', 'gi');
-    return esc(t).replace(re, function (_, pre, nm) {
+    return esc(raw).replace(re, function (_, pre, nm) {
       var hot = nm.toLowerCase() === me.toLowerCase() || nm.toLowerCase() === 'everyone';
       return pre + '<span class="mention' + (hot ? ' me' : '') + '">@' + nm + '</span>';
     });
   }
+  /* Links become clickable (they open in your normal browser). noLinks keeps plain text, for banners. */
+  function richText(t, noLinks) {
+    t = String(t || ''); if (noLinks) return mentionize(t);
+    var out = '', last = 0, m, re = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi;
+    while ((m = re.exec(t))) {
+      var url = m[0], trail = '';
+      while (/[.,;:!?'"\]]$/.test(url) || (/\)$/.test(url) && url.split('(').length < url.split(')').length)) { trail = url.slice(-1) + trail; url = url.slice(0, -1); }
+      out += mentionize(t.slice(last, m.index)) + '<a class="msg-link" href="' + esc(/^www\./i.test(url) ? 'https://' + url : url) + '" target="_blank" rel="noopener noreferrer">' + esc(url) + '</a>' + esc(trail);
+      last = m.index + m[0].length;
+    }
+    return out + mentionize(t.slice(last));
+  }
+  /* YouTube links get a small player card under the message. Press play and the video loads in place. */
+  function ytIdOf(t) {
+    var m = /(?:youtube\.com\/(?:watch\?(?:[^\s#]*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i.exec(String(t || ''));
+    return m ? m[1] : null;
+  }
+  function ytCard(t) {
+    var id = ytIdOf(t); if (!id) return '';
+    return '<div class="yt-card" data-yt="' + id + '"><button class="yt-play" data-action="yt-play" aria-label="Play video"><img alt="" loading="lazy" src="https://i.ytimg.com/vi/' + id + '/hqdefault.jpg"><span class="yt-btn">' + ico('play') + '</span></button>' +
+      '<a class="yt-open" href="https://www.youtube.com/watch?v=' + id + '" target="_blank" rel="noopener noreferrer">Open on YouTube</a></div>';
+  }
   function imagesOf(m) { return m.images && m.images.length ? m.images : [{ scene: m.scene, image: m.image, name: m.name }]; }
   function msgContent(m) {
     var out = '', text = m.text ? '<span>' + richText(m.text) + '</span>' : '';
-    if (m.type === 'text') return text;
+    if (m.type === 'text') return text + ytCard(m.text);
     if (m.type === 'image') {
       var list = imagesOf(m);
       function pic(it) { return it.image ? '<img class="scene" src="' + esc(it.image) + '" alt="' + esc(it.name || 'Shared photo') + '" style="aspect-ratio:3/2;object-fit:cover">' : scene(it.scene || 0, 300, 200); }
@@ -534,6 +558,7 @@
     }
     if (m.type === 'gif') {
       var g = m.gif || {};
+      if (g.url) return '<div class="gif-msg"><img class="gif-img" alt="' + esc(g.label || 'GIF') + '" loading="lazy" src="' + esc(g.url) + '" style="aspect-ratio:' + (g.w || 200) + '/' + (g.h || 200) + '"><em>GIF</em></div>' + (text ? '<p class="cap">' + text + '</p>' : '');
       return '<div class="gif-tile"><strong>' + esc(g.emoji || '✨') + '</strong><em>GIF</em></div>' + (text ? '<p class="cap">' + text + '</p>' : '');
     }
     return out;
@@ -575,6 +600,16 @@
     return '<span class="edit-inline"><input id="edit-input" type="text" value="' + esc(m.text) + '" aria-label="Edit message" autocomplete="off">' +
       '<span class="edit-hint">Enter to save · Esc to cancel</span><span class="edit-btns"><button class="btn-pill quiet" data-action="edit-msg-cancel">Cancel</button><button class="btn-pill" data-action="edit-msg-save">Save</button></span></span>';
   }
+  /* "Ben, Plushpants and you reacted" for the hover note on a reaction. */
+  function reactWho(r) {
+    var ids = r.who || []; if (!ids.length) return '';
+    var names = ids.filter(function (w) { return w !== 'you'; }).map(function (w) { return (person(w) || {}).name || 'Someone'; });
+    if (ids.indexOf('you') !== -1) names.push('you');
+    if (names.length > 6) names = names.slice(0, 5).concat((names.length - 5) + ' others');
+    var out = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return out.charAt(0).toUpperCase() + out.slice(1) + ' reacted';
+  }
+
   function renderMessages(opts) {
     opts = opts || {};
     if (!currentConv()) return;
@@ -604,7 +639,8 @@
       }
       var mediaOnly = (m.type === 'image' || m.type === 'gif') && !q && !m.text;
       var reacts = (m.reactions && m.reactions.length) ? '<div class="reactions">' + m.reactions.map(function (r) {
-        return '<button class="react' + (r.mine ? ' mine' : '') + '" data-action="react-toggle" data-id="' + m.id + '" data-emoji="' + r.emoji + '" aria-pressed="' + r.mine + '">' + r.emoji + ' ' + r.count + '</button>';
+        var who = reactWho(r);
+        return '<button class="react' + (r.mine ? ' mine' : '') + '"' + (who ? ' data-who="' + esc(who) + '" aria-label="' + esc(r.emoji + ' ' + r.count + '. ' + who) + '"' : '') + ' data-action="react-toggle" data-id="' + m.id + '" data-emoji="' + r.emoji + '" aria-pressed="' + r.mine + '">' + r.emoji + ' ' + r.count + '</button>';
       }).join('') + '</div>' : '';
       html += '<div class="msg' + (me ? ' me' : '') + (runStart ? ' run-start' : '') + (last ? '' : ' not-last') + (isNew ? ' enter' : '') + (hot ? ' mentions-me' + calm : '') + '" data-id="' + m.id + '" tabindex="0">' +
         '<div class="msg-actions"><button class="btn-round sm" data-action="reply" data-id="' + m.id + '" aria-label="Reply">' + ico('reply', 'sm') + '</button>' +
@@ -637,12 +673,28 @@
 
   /* ---------- Popovers ---------- */
   var EMOJI = ['😀', '😂', '😍', '🥹', '😎', '🤔', '😮', '😢', '👍', '👏', '🙌', '🙏', '🔥', '✨', '🎉', '❤️', '💜', '✈️', '☁️', '🌙', '☕'];
-  var GIFS = [
-    { g: 'linear-gradient(135deg,#F2A07B,#E0549F)', e: '🎉', l: 'celebration' },
-    { g: 'linear-gradient(135deg,#5B8DEF,#7C5CFA)', e: '😂', l: 'laughing' },
-    { g: 'linear-gradient(135deg,#3FBF8F,#5B8DEF)', e: '👍', l: 'thumbs up' },
-    { g: 'linear-gradient(135deg,#B58CFF,#F06BA8)', e: '👋', l: 'hello' }
-  ];
+  /* GIF picker: trending to start, search as you type, more as you scroll. */
+  var gifs = { q: '', items: [], next: null, busy: false, err: '', t: null, seq: 0 };
+  function paintGifs() {
+    var g = $('#gif-grid'); if (!g) return;
+    if (gifs.err) { g.innerHTML = '<p class="gif-empty">' + esc(gifs.err) + '</p>'; return; }
+    if (!gifs.items.length) { g.innerHTML = '<p class="gif-empty">' + (gifs.busy ? 'Loading\u2026' : 'No GIFs found. Try another word.') + '</p>'; return; }
+    var cols = ['', ''];
+    gifs.items.forEach(function (it, i) { cols[i % 2] += '<button data-action="gif-pick" data-i="' + i + '" aria-label="' + esc(it.title) + '" style="aspect-ratio:' + it.w + '/' + it.h + '"><img alt="" loading="lazy" src="' + esc(it.preview || it.url) + '"></button>'; });
+    g.innerHTML = '<div class="gif-col">' + cols[0] + '</div><div class="gif-col">' + cols[1] + '</div>' + (gifs.busy ? '<p class="gif-more">Loading\u2026</p>' : '');
+  }
+  function loadGifs(q, more) {
+    q = String(q || '').trim();
+    if (!more) { gifs.q = q; gifs.items = []; gifs.next = null; gifs.err = ''; }
+    var seq = ++gifs.seq, off = more ? gifs.next : 0; gifs.busy = true; paintGifs();
+    S.searchGifs(q, off || 0).then(function (r) {
+      if (seq !== gifs.seq) return;
+      gifs.items = gifs.items.concat(r.items || []); gifs.next = r.next == null ? null : r.next; gifs.busy = false; paintGifs();
+    }).catch(function (e) {
+      if (seq !== gifs.seq) return;
+      gifs.busy = false; gifs.err = e && e.code === 'not_set_up' ? 'GIF search is not set up yet. Ask the owner to finish the GIPHY step.' : e && e.code === 'busy' ? 'GIF search is busy right now. Try again in a minute.' : 'Couldn’t load GIFs. Check your connection and try again.'; paintGifs();
+    });
+  }
   function renderPopover() {
     var slot = $('#popover-slot'), p = state.popover;
     if (!slot) return;
@@ -650,9 +702,12 @@
     if (p.type === 'emoji') {
       slot.innerHTML = '<div class="popover emoji" role="dialog" aria-label="Emoji">' + EMOJI.map(function (e) { return '<button data-action="emoji-pick" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('') + '</div>';
     } else if (p.type === 'gif') {
-      slot.innerHTML = '<div class="popover gifs" role="dialog" aria-label="GIFs"><label class="field" for="gif-search">' + ico('search', 'sm') + '<input id="gif-search" type="search" placeholder="Search GIFs"></label>' +
-        '<div class="gif-grid">' + GIFS.map(function (g, i) { return '<button data-action="gif-pick" data-i="' + i + '" style="background:' + g.g + '" aria-label="' + g.l + '"><span>' + g.e + '</span></button>'; }).join('') + '</div>' +
-        '<p class="gif-note">These are placeholders. Real GIF search is added when chat goes live.</p></div>';
+      slot.innerHTML = '<div class="popover gifs" role="dialog" aria-label="GIFs"><label class="field" for="gif-search">' + ico('search', 'sm') + '<input id="gif-search" type="search" placeholder="Search GIFs" autocomplete="off" value="' + esc(gifs.q) + '"></label>' +
+        '<div class="gif-grid" id="gif-grid" aria-live="polite"></div><p class="gif-note">Powered by GIPHY</p></div>';
+      var gi = $('#gif-search'); gi.focus();
+      gi.addEventListener('input', function () { clearTimeout(gifs.t); gifs.t = setTimeout(function () { loadGifs(gi.value, false); }, 380); });
+      $('#gif-grid').addEventListener('scroll', function (e) { var g = e.target; if (gifs.next != null && !gifs.busy && g.scrollTop + g.clientHeight > g.scrollHeight - 160) loadGifs(gifs.q, true); });
+      if (gifs.items.length) paintGifs(); else loadGifs('', false);
     } else if (p.type === 'attach') {
       slot.innerHTML = '<div class="popover attach" role="menu"><button data-action="attach-image" role="menuitem">' + ico('image') + 'Photo</button><button data-action="attach-file" role="menuitem">' + ico('paperclip') + 'File</button></div>';
     } else if (p.type === 'new') {
@@ -685,12 +740,12 @@
   function renderDetails() {
     if (!currentConv()) return;
     var c = currentConv(), e = entity(c), sh = S.getShared(c.id), html;
-    var sub = c.type === 'direct' ? statusText(person(c.with).status) : c.members.length + ' members';
+    var sub = c.type === 'direct' ? (person(c.with).note || statusText(person(c.with).status)) : c.members.length + ' members';
     html = '<div class="details-head">' + avatarFor(c, 92, false) + '<h2>' + esc(e.name) + '</h2><p>' + esc(sub) + '</p></div>';
     if (c.type === 'group') {
       html += acc('members', 'users', 'Members', c.members.length, c.members.map(function (id) {
         var p = person(id);
-        return '<div class="member" data-person="' + id + '">' + avatar(p, 34, { dot: true }) + '<div><b>' + (id === 'you' ? esc(p.name) + ' (you)' : esc(p.name)) + '</b><span>' + statusText(p.status) + '</span></div></div>';
+        return '<div class="member" data-person="' + id + '">' + avatar(p, 34, { dot: true }) + '<div><b>' + (id === 'you' ? esc(p.name) + ' (you)' : esc(p.name)) + '</b><span>' + statusLine(p) + '</span></div></div>';
       }).join('') + '<button class="btn-pill quiet danger leave-btn" data-action="leave-group" data-id="' + c.id + '">' + ico('log-out', 'sm') + 'Leave group</button>');
     }
     html += acc('media', 'image', 'Media', sh.media.length,
@@ -788,6 +843,7 @@
           return '<button type="button" class="ring-sw" role="radio" aria-checked="' + on + '" aria-label="' + r[2] + ' ring" title="' + r[2] + '" data-action="ring-pick" data-i="' + i + '" style="--c1:' + r[0] + ';--c2:' + r[1] + '"></button>';
         }).join('') + '</div></div></div>' +
         '<label class="name-label" for="set-name">Display name</label><label class="field" for="set-name"><input id="set-name" type="text" value="' + esc(me.name) + '"></label>' +
+        '<label class="name-label" for="set-note">Status message</label><label class="field" for="set-note"><input id="set-note" type="text" maxlength="60" placeholder="What are you up to? Words or an emoji" autocomplete="off" value="' + esc(me.note || '') + '"></label>' +
         '<input id="file-avatar" type="file" accept="image/*" hidden></div>' +
         '<div class="set-section"><h3>Status</h3><p class="pane-note">Change it any time by clicking your card at the bottom of the chat list.</p></div>';
     }
@@ -843,6 +899,10 @@
     var inp = $('#set-name', pane);
     if (inp) inp.addEventListener('change', function () {
       S.updateProfile({ name: inp.value.trim() || 'bevopresto' }).then(function () { renderMe(); renderMessages({ scroll: false, initial: true, noFocus: true }); renderDetails(); });
+    });
+    var note = $('#set-note', pane);
+    if (note) note.addEventListener('change', function () {
+      S.updateProfile({ note: note.value.trim().slice(0, 60) }).then(function () { renderMe(); renderHead(); renderDetails(); });
     });
     var fa = $('#file-avatar', pane);
     if (fa) fa.addEventListener('change', function (ev) {
@@ -989,7 +1049,7 @@
   }
   function showMentionBanner(conversationId, m) {
     var c = C.data.conversations.filter(function (x) { return x.id === conversationId; })[0], who = person(m.from), where = entity(c).name;
-    showBanner({ who: who, badge: '@', title: who.name + ' mentioned you', where: c.type === 'group' ? 'in ' + where : 'in a direct chat', html: richText(m.text), openAction: 'banner-open', id: conversationId });
+    showBanner({ who: who, badge: '@', title: who.name + ' mentioned you', where: c.type === 'group' ? 'in ' + where : 'in a direct chat', html: richText(m.text, true), openAction: 'banner-open', id: conversationId });
   }
 
   /* ---------- Group picture and name (used when creating and when editing) ---------- */
@@ -1136,7 +1196,7 @@
       }).join('') + '</div><span class="dr-meta"><b>' + (d.items.length > 1 ? d.items.length + ' photos' : esc(d.items[0].name || 'Photo')) + '</b><span>' + (d.items.length > 1 ? esc(d.items.map(function (x) { return x.name; }).filter(Boolean).join(', ')) : 'Photo') + '</span></span>';
     } else if (d.kind === 'file') {
       body = '<span class="dr-ico">' + ico('file-text') + '</span><span class="dr-meta"><b>' + esc(d.file.name) + '</b><span>' + esc(d.file.size) + '</span></span>';
-    } else body = '<span class="dr-gif">' + esc(d.gif.emoji) + '</span><span class="dr-meta"><b>GIF</b><span>' + esc(d.gif.label) + '</span></span>';
+    } else body = (d.gif.url ? '<span class="dr-thumbs"><span class="dr-thumb"><img src="' + esc(d.gif.url) + '" alt=""></span></span>' : '<span class="dr-gif">' + esc(d.gif.emoji) + '</span>') + '<span class="dr-meta"><b>GIF</b><span>' + esc(d.gif.label) + '</span></span>';
     slot.innerHTML = '<div class="draft-strip">' + body + '<button type="button" class="btn-round sm" data-action="draft-clear" aria-label="Remove attachment">' + ico('x', 'sm') + '</button></div>';
   }
   function stage(draft) {
@@ -1216,7 +1276,7 @@
       case 'emoji-open': state.popover = state.popover && state.popover.type === 'emoji' ? null : { type: 'emoji' }; renderPopover(); break;
       case 'emoji-pick': var inp = $('#composer-input'); inp.value += t.dataset.emoji; inp.focus(); break;
       case 'gif-open': state.popover = state.popover && state.popover.type === 'gif' ? null : { type: 'gif' }; renderPopover(); break;
-      case 'gif-pick': var g = GIFS[+t.dataset.i]; closePopovers(); stage({ kind: 'gif', gif: { label: g.l, emoji: g.e } }); break;
+      case 'gif-pick': var g = gifs.items[+t.dataset.i]; if (!g) break; closePopovers(); stage({ kind: 'gif', gif: { label: g.title, url: g.url, w: g.w, h: g.h, id: g.id } }); break;
       case 'draft-remove': if (state.draft && state.draft.kind === 'image') { state.draft.items.splice(+t.dataset.i, 1); if (!state.draft.items.length) state.draft = null; renderDraft(); } break;
       case 'draft-clear': state.draft = null; renderDraft(); break;
       case 'attach-open': state.popover = state.popover && state.popover.type === 'attach' ? null : { type: 'attach' }; renderPopover(); break;

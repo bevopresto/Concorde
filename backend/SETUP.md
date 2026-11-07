@@ -42,3 +42,8 @@ When a new version adds database changes, paste the whole of `backend/supabase/s
 2. Edge Functions > Secrets: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (from your LiveKit project; paste them only into Supabase).
 3. Edge Functions > deploy a new function with the contents of `functions/livekit-token/index.ts`. Supabase picks the function's name (yours is `smooth-function`).
    Put that name in `js/config.js` as `livekitTokenFunction`. Turn "Verify JWT with legacy secret" off for it (the function checks the person itself).
+
+## GIF library (v0.17)
+1. Make a free key at developers.giphy.com (Create an App → API). Don't paste it in chat.
+2. Supabase → Edge Functions → Secrets → add `GIPHY_API_KEY` with the key.
+3. Supabase → Edge Functions → Deploy a new function named `gif-search`; paste backend/supabase/functions/gif-search/index.ts. Leave "Verify JWT" on.

@@ -80,6 +80,36 @@
       });
     } });
   }
+  function askHide(id) {
+    var c = convById(id); if (!c || c.type !== 'direct') return;
+    var name = person(c.with).name;
+    confirmBox({ title: 'Remove this chat?', body: 'It disappears from your list. ' + name + ' keeps theirs, and the chat comes back if either of you writes again.', yes: 'Remove chat', onYes: function () {
+      var wasHere = st.convId === id;
+      S.hideChat(id).then(function (ok) {
+        if (!ok) return toast('Couldn’t remove that chat. Try again.');
+        toast('Chat removed from your list');
+        if (wasHere) { var next = st.conversations[0]; if (next) U.openConversation(next.id); }
+        U.renderList();
+      });
+    } });
+  }
+  function askRemoveFromGroup(convId, personId) {
+    var c = convById(convId), p = person(personId); if (!c || !p) return;
+    confirmBox({ title: 'Remove ' + p.name + ' from ' + c.name + '?', body: 'Everyone in the group will see a note that they were removed. They keep their account and other chats.', yes: 'Remove from group', onYes: function () {
+      S.removeFromGroup(convId, personId).then(function (ok) { toast(ok ? p.name + ' was removed from the group' : 'Couldn’t remove them. Try again.'); if (ok) { U.renderList(); U.renderDetails(); } });
+    } });
+  }
+  function askRemovePerson(personId) {
+    var p = person(personId); if (!p || personId === 'you') return;
+    confirmBox({ title: 'Remove ' + p.name + ' from Concorde?', body: 'This deletes their account, their one-to-one chats and every message they sent. It can’t be undone. They could rejoin later with a new invite.', yes: 'Remove ' + p.name, onYes: function () {
+      S.removePerson(personId).then(function (ok) {
+        if (!ok) return toast('Couldn’t remove them. Try again.');
+        toast(p.name + ' was removed from Concorde');
+        if (!convById(st.convId)) { var next = st.conversations[0]; if (next) U.openConversation(next.id); }
+        U.renderList(); U.renderDetails();
+      });
+    } });
+  }
   A['toggle-pin'] = function () { togglePin(st.convId); };
   A['toggle-mute-chat'] = function () { toggleMuteChat(st.convId); };
   A['leave-group'] = function (t) { askLeave(t.dataset.id); };
@@ -97,6 +127,10 @@
       items.push({ sep: true });
       items.push({ icon: 'pencil', label: 'Edit group', run: function () { U.openEdit(c.id); } });
       items.push({ icon: 'log-out', label: 'Leave group', danger: true, run: function () { askLeave(c.id); } });
+    } else {
+      items.push({ sep: true });
+      items.push({ icon: 'eye-off', label: 'Remove chat', run: function () { askHide(c.id); } });
+      if (S.isOwner()) items.push({ icon: 'user-x', label: 'Remove ' + person(c.with).name + ' from Concorde…', danger: true, run: function () { askRemovePerson(c.with); } });
     }
     return items;
   }
@@ -119,11 +153,45 @@
     return items;
   }
   A._reply = function (id) { st.replyTo = id; var rs = $('#reply-slot'); if (rs) { var m = msgById(id); rs.innerHTML = '<div class="reply-strip"><div><b>Replying to ' + (m.from === 'you' ? 'yourself' : esc(person(m.from).name)) + '</b><span>' + esc(U.snippet(m)) + '</span></div><button class="btn-round sm" data-action="cancel-reply" aria-label="Cancel reply">' + ico('x', 'sm') + '</button></div>'; } var ci = $('#composer-input'); if (ci) ci.focus(); };
+  function ownerPersonItems(id) {
+    var out = [{ sep: true }], cc = U.currentConv();
+    if (cc && cc.type === 'group' && cc.members.indexOf(id) !== -1) out.push({ icon: 'log-out', label: 'Remove from ' + cc.name, danger: true, run: function () { askRemoveFromGroup(cc.id, id); } });
+    out.push({ icon: 'user-x', label: 'Remove ' + person(id).name + ' from Concorde…', danger: true, run: function () { askRemovePerson(id); } });
+    return out;
+  }
+  var lastCtx = { x: 200, y: 200 };
+  function inCallWith(id) {
+    return st.conversations.some(function (c) { var k = S.getCall(c.id); return k && k.joined && k.participants.indexOf(id) !== -1; });
+  }
+  /* A small slider for one person's volume, for the friend who is louder than the rest. Only turns them down, only for you. */
+  var pvol = null;
+  function closeVol() { if (pvol) { pvol.remove(); pvol = null; document.removeEventListener('mousedown', onVolAway, true); document.removeEventListener('keydown', onVolKey, true); } }
+  function onVolAway(e) { if (pvol && !pvol.contains(e.target)) closeVol(); }
+  function onVolKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeVol(); } }
+  function openVol(id, x, y) {
+    closeVol(); var p = person(id), v = S.getPersonVolume ? S.getPersonVolume(id) : 100;
+    pvol = document.createElement('div'); pvol.className = 'pvol'; pvol.setAttribute('role', 'dialog'); pvol.setAttribute('aria-label', 'Volume for ' + p.name);
+    pvol.innerHTML = '<div class="pvol-head">' + avatar(p, 30) + '<b>' + esc(p.name) + '</b><button class="btn-round sm" data-pvol-x aria-label="Close">' + ico('x', 'sm') + '</button></div>' +
+      '<label class="pvol-row"><span>' + ico('volume-2', 'sm') + '</span><input class="rng" type="range" min="0" max="100" value="' + v + '" aria-label="Volume for ' + esc(p.name) + '"><output>' + v + '%</output></label>' +
+      '<button class="btn-pill quiet pvol-reset" data-pvol-reset>Reset to 100%</button><p class="pvol-note">Only you hear this change. It is remembered for next time.</p>';
+    document.body.appendChild(pvol);
+    var w = pvol.offsetWidth, h = pvol.offsetHeight;
+    pvol.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px'; pvol.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
+    var rng = pvol.querySelector('input'), out = pvol.querySelector('output');
+    rng.addEventListener('input', function () { out.textContent = rng.value + '%'; S.setPersonVolume(id, +rng.value); });
+    pvol.addEventListener('click', function (e) {
+      if (e.target.closest('[data-pvol-x]')) closeVol();
+      else if (e.target.closest('[data-pvol-reset]')) { rng.value = 100; out.textContent = '100%'; S.setPersonVolume(id, 100); }
+    });
+    setTimeout(function () { document.addEventListener('mousedown', onVolAway, true); document.addEventListener('keydown', onVolKey, true); }, 0);
+    rng.focus();
+  }
   function personMenu(id) {
     if (id === 'you') return null;
     var c = st.conversations.filter(function (x) { return x.type === 'direct' && x.with === id; })[0];
     function open(after) { S.createConversation([id]).then(function (r) { return U.openConversation(r.id).then(function () { if (after) after(r.id); }); }); }
-    return [
+    var vol = (S.setPersonVolume && inCallWith(id)) ? [{ icon: 'volume-2', label: 'Adjust volume', run: function () { openVol(id, lastCtx.x, lastCtx.y); } }, { sep: true }] : [];
+    return vol.concat([
       { icon: 'message-circle', label: 'Send message', run: function () { open(function () { var i = $('#composer-input'); if (i) i.focus(); }); } },
       { icon: 'phone', label: 'Voice call', run: function () { open(function (cid) { S.startDirectCall(cid, 'audio'); }); } },
       { icon: 'video', label: 'Video call', run: function () { open(function (cid) { S.startDirectCall(cid, 'video'); }); } },
@@ -132,16 +200,17 @@
         function put() { var i = $('#composer-input'); if (!i) return; i.value += (i.value && !/\s$/.test(i.value) ? ' ' : '') + '@' + person(id).name + ' '; i.focus(); }
         if (ok) put(); else { toast('They are not in this chat.'); }
       } }
-    ];
+    ]).concat(S.isOwner() ? ownerPersonItems(id) : []);
   }
   document.addEventListener('contextmenu', function (ev) {
     var t = ev.target; if (!t.closest || t.closest('input, textarea')) return;
     var pt = t.closest('.avatar'); var pp = pt && pt.closest('[data-person]');
-    var x = ev.clientX, y = ev.clientY, items = null;
+    var x = ev.clientX, y = ev.clientY, items = null; lastCtx = { x: x, y: y };
     if (!x && !y) { var r = t.getBoundingClientRect(); x = r.left + 20; y = r.top + 20; }
     if (pp && pp.dataset.person) items = personMenu(pp.dataset.person);
     else if (t.closest('.member[data-person]')) items = personMenu(t.closest('.member').dataset.person);
     else if (t.closest('.pt[data-person]')) items = personMenu(t.closest('.pt').dataset.person);
+    else if (t.closest('#call-slot [data-person]')) items = personMenu(t.closest('#call-slot [data-person]').dataset.person);
     else if (t.closest('.conv[data-id]')) items = convMenu(convById(t.closest('.conv').dataset.id));
     else if (t.closest('.msg[data-id]') && !t.closest('.msg').classList.contains('typing-row')) {
       var m = msgById(t.closest('.msg').dataset.id); if (m && !m.deleted) items = messageMenu(m);
@@ -292,6 +361,7 @@
     return '<article class="tcard" data-id="' + i.id + '"><header>' + avatar(p, 38) + '<div><b>' + (i.from === 'you' ? 'You' : esc(p.name)) + '</b><span>' + esc(i.time) + '</span></div>' +
       '<span class="ttype ' + i.type + '">' + ico(i.type === 'bug' ? 'bug' : 'lightbulb', 'sm') + (i.type === 'bug' ? 'Bug' : 'Idea') + '</span></header>' +
       '<p>' + esc(i.text) + '</p>' +
+      ((i.images && i.images.length) ? '<div class="tshots">' + i.images.map(function (u, n) { return '<button class="tshot" data-action="tower-shot" data-u="' + esc(u) + '" aria-label="View screenshot ' + (n + 1) + '"><img alt="" loading="lazy" src="' + esc(u) + '"></button>'; }).join('') + '</div>' : '') +
       '<footer><button class="plus' + (mine ? ' mine' : '') + '" data-action="tower-plus" data-id="' + i.id + '" aria-pressed="' + mine + '" aria-label="Plus one. ' + i.plus.length + ' so far.">' + ico('thumbs-up', 'sm') + '+1 <b>' + i.plus.length + '</b></button>' +
       '<button class="cmt" data-action="tower-comments" data-id="' + i.id + '" aria-expanded="' + !!open + '">' + ico('message-circle', 'sm') + (i.comments.length || 'Comment') + '</button><span class="grow"></span>' + status + '</footer>' +
       (open ? '<div class="tcomments">' + i.comments.map(function (c) { return '<div class="tc">' + avatar(person(c.from), 26) + '<span><b>' + (c.from === 'you' ? 'You' : esc(person(c.from).name)) + '</b> ' + esc(c.text) + '</span></div>'; }).join('') +
@@ -308,27 +378,75 @@
     var el = document.createElement('div'); el.className = 'scrim2'; el.dataset.action = 'tower-scrim';
     el.innerHTML = '<div class="modal tower" role="dialog" aria-modal="true" aria-labelledby="tw-t"><div class="new-head"><div><h2 id="tw-t">Tell the Tower</h2><p class="crop-hint">Ideas and bugs for Concorde. Everyone can see them and add a +1.</p></div><button class="btn-round sm" data-action="tower-close" aria-label="Close">' + ico('x', 'sm') + '</button></div>' +
       '<div class="tower-new"><div class="segments mini" role="group" aria-label="Type"><button data-action="tower-type" data-t="idea" aria-pressed="true">' + ico('lightbulb', 'sm') + 'Idea</button><button data-action="tower-type" data-t="bug" aria-pressed="false">' + ico('bug', 'sm') + 'Bug</button></div>' +
-      '<label class="field" for="tower-text"><input id="tower-text" maxlength="200" placeholder="What should the Tower know?" autocomplete="off"></label><button class="btn-pill" data-action="tower-post">' + ico('send', 'sm') + 'Post</button></div>' +
+      '<label class="field" for="tower-text"><input id="tower-text" maxlength="200" placeholder="What should the Tower know?" autocomplete="off"></label><button class="btn-round" data-action="tower-attach" aria-label="Add a screenshot" title="Add a screenshot (or paste one)">' + ico('image', 'sm') + '</button><input type="file" id="tower-file" accept="image/*" multiple hidden><button class="btn-pill" data-action="tower-post">' + ico('send', 'sm') + 'Post</button><div class="tower-shots" id="tower-shots" hidden></div></div>' +
       '<div class="segments tower-filter" role="group" aria-label="Show"><button data-action="tower-filter" data-f="all" aria-pressed="true">All</button><button data-action="tower-filter" data-f="idea" aria-pressed="false">Ideas</button><button data-action="tower-filter" data-f="bug" aria-pressed="false">Bugs</button></div>' +
       '<div class="tower-list"></div></div>';
     overlay.appendChild(el);
-    tw = { el: el, type: 'idea', filter: 'all', open: {} };
+    tw = { el: el, type: 'idea', filter: 'all', open: {}, shots: [] };
     paintTower(); $('#tower-text', el).focus();
     $('#tower-text', el).addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); A['tower-post'](); } });
+    $('#tower-text', el).addEventListener('paste', function (e) {
+      var files = Array.prototype.filter.call((e.clipboardData && e.clipboardData.files) || [], function (f) { return /^image\//.test(f.type); });
+      if (files.length) { e.preventDefault(); addShots(files); }
+    });
+    $('#tower-file', el).addEventListener('change', function (e) { addShots(e.target.files); e.target.value = ''; });
     el.addEventListener('keydown', function (e) { var c = e.target.dataset && e.target.dataset.comment; if (c && e.key === 'Enter') { e.preventDefault(); sendComment(c); } });
     S.markTowerSeen();
   }
   function closeTower() { if (tw) { tw.el.remove(); tw = null; } }
   function sendComment(id) { var i = $('#tc-' + id); if (!i || !i.value.trim()) return; var v = i.value; S.addIdeaComment(id, v); }
   A['tower-open'] = openTower;
+  A['yt-play'] = function (t) {
+    var card = t.closest('.yt-card'); if (!card) return;
+    var f = document.createElement('iframe'); f.className = 'yt-frame'; f.title = 'YouTube video';
+    f.src = 'https://www.youtube-nocookie.com/embed/' + card.dataset.yt + '?autoplay=1&rel=0&modestbranding=1';
+    f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen'; f.allowFullscreen = true; f.referrerPolicy = 'strict-origin-when-cross-origin';
+    card.querySelector('.yt-play').replaceWith(f); card.classList.add('playing');
+  };
   A['tower-close'] = closeTower;
   A['tower-scrim'] = function (t, ev) { if (ev.target === t) closeTower(); };
   A['tower-type'] = function (t) { tw.type = t.dataset.t; tw.el.querySelectorAll('[data-action="tower-type"]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === t)); }); };
   A['tower-filter'] = function (t) { tw.filter = t.dataset.f; paintTower(); };
+  /* Screenshots on an idea or bug: up to four, pasted or picked. */
+  var MAX_SHOTS = 4;
+  function paintShots() {
+    var box = $('#tower-shots', tw.el); if (!box) return;
+    box.hidden = !tw.shots.length;
+    box.innerHTML = tw.shots.map(function (sh, n) {
+      return '<span class="tshot-chip"><img alt="Screenshot ' + (n + 1) + '" src="' + sh.url + '"><button data-action="tower-shot-x" data-n="' + n + '" aria-label="Remove screenshot ' + (n + 1) + '">' + ico('x', 'sm') + '</button></span>';
+    }).join('');
+  }
+  function addShots(files) {
+    var list = Array.prototype.filter.call(files || [], function (f) { return /^image\//.test(f.type); });
+    if (!list.length) return;
+    var room = MAX_SHOTS - tw.shots.length;
+    if (list.length > room) toast('Up to ' + MAX_SHOTS + ' screenshots per post.');
+    list.slice(0, Math.max(0, room)).forEach(function (f) { tw.shots.push({ file: f, url: URL.createObjectURL(f) }); });
+    paintShots(); var t = $('#tower-text', tw.el); if (t) t.focus();
+  }
+  A['tower-attach'] = function () { var f = $('#tower-file', tw.el); if (f) f.click(); };
+  A['tower-shot-x'] = function (t) { var sh = tw.shots.splice(+t.dataset.n, 1)[0]; if (sh) URL.revokeObjectURL(sh.url); paintShots(); };
   A['tower-post'] = function () {
-    var i = $('#tower-text', tw.el), v = i.value.trim(); if (!v) { i.focus(); return; }
-    i.value = ''; S.addIdea({ type: tw.type, text: v }).then(function () { U.chime('send'); toast('Posted to the Tower'); });
+    var i = $('#tower-text', tw.el), v = i.value.trim(), shots = tw.shots.slice();
+    if (!v && !shots.length) { i.focus(); return; }
+    if (!v) v = tw.type === 'bug' ? 'Screenshot of a bug' : 'Screenshot';
+    var btn = $('[data-action="tower-post"]', tw.el), type = tw.type;
+    i.value = ''; tw.shots = []; paintShots(); if (btn) btn.disabled = true;
+    S.addIdea({ type: type, text: v, images: shots.map(function (x) { return x.file; }) }).then(function () {
+      shots.forEach(function (x) { URL.revokeObjectURL(x.url); }); U.chime('send'); toast('Posted to the Tower');
+    }).catch(function () {
+      if (tw) { i.value = v; tw.shots = shots; paintShots(); }
+      toast('Couldn’t post that. Try again.');
+    }).then(function () { if (btn) btn.disabled = false; });
   };
+  A['tower-shot'] = function (t) { peekImage(t.dataset.u); };
+  function peekImage(url) {
+    var el = document.createElement('div'); el.className = 'peek'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Screenshot');
+    el.innerHTML = '<img alt="Screenshot" src="' + esc(url) + '"><button class="btn-round" aria-label="Close">' + ico('x') + '</button>';
+    function close() { el.remove(); document.removeEventListener('keydown', onKey, true); }
+    function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+    el.addEventListener('click', close); document.addEventListener('keydown', onKey, true); document.body.appendChild(el);
+  }
   A['tower-plus'] = function (t) { S.toggleIdeaPlus(t.dataset.id); };
   A['tower-comments'] = function (t) { tw.open[t.dataset.id] = !tw.open[t.dataset.id]; paintTower(); if (tw.open[t.dataset.id]) { var i = $('#tc-' + t.dataset.id); if (i) i.focus(); } };
   A['tower-comment-send'] = function (t) { sendComment(t.dataset.id); };
@@ -337,6 +455,16 @@
   A['sim-idea'] = function () {
     U.state.settings = false; U.renderSettings();
     setTimeout(function () { S.simulateIdea(['kid', 'chiroben', 'plushpants'][Math.floor(Math.random() * 3)]); }, 500);
+  };
+  /* Someone new joined with an invite: everyone gets a friendly note with a shortcut to say hello. */
+  S.on('joined', function (e) {
+    var p = e && e.person; if (!p || U.quiet() || !st.alerts) return;
+    U.chime('mention');
+    U.showBanner({ who: p, badge: ico('user-plus', 'sm'), title: p.name + ' just joined Concorde', where: 'New friend', html: 'Say hello \uD83D\uDC4B', openAction: 'say-hi', id: p.id });
+  });
+  A['say-hi'] = function (t) {
+    U.closeBanner();
+    S.createConversation([t.dataset.id]).then(function (r) { var id = r && (r.id || r); if (id) U.openConversation(id); }).catch(function () { toast('Couldn’t start that chat.'); });
   };
   S.on('tower', function (e) {
     towerBtnDot();

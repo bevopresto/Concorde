@@ -4,7 +4,7 @@
 
   var people = {
     you:       { id: 'you',       name: 'bevopresto', c1: '#7C5CFA', c2: '#E0549F', status: 'online', avatar: null },
-    chiroben:  { id: 'chiroben',  name: 'chiroben',   c1: '#5B8DEF', c2: '#7C5CFA', status: 'online' },
+    chiroben:  { id: 'chiroben',  name: 'chiroben',   c1: '#5B8DEF', c2: '#7C5CFA', status: 'online', note: '🎧 Gaming tonight' },
     plushpants:{ id: 'plushpants',name: 'Plushpants', c1: '#F2A07B', c2: '#E0549F', status: 'online' },
     kid:       { id: 'kid',       name: 'Kid',        c1: '#3FBF8F', c2: '#5B8DEF', status: 'away' }
   };
@@ -27,10 +27,10 @@
       { id: 'h0c', from: 'you', type: 'text', text: "Count me in. I'll sort the call.", time: '8:12 pm', d: -1 },
       { id: 'h1', from: 'chiroben', type: 'text', text: "Anyone up for a game tonight? I've got the whole evening free.", time: '7:42 pm' },
       { id: 'h2', from: 'plushpants', type: 'text', text: 'Yes! Give me twenty minutes to finish dinner.', time: '7:44 pm', replyTo: 'h1',
-        reactions: [{ emoji: '👍', count: 2, mine: false }] },
+        reactions: [{ emoji: '👍', count: 2, mine: false, who: ['chiroben', 'kid'] }] },
       { id: 'h3', from: 'you', type: 'text', text: "I'm in. Setting up the call now.", time: '7:45 pm' },
       { id: 'h4', from: 'kid', type: 'image', text: 'Look what I found on the walk home', scene: 2, name: 'walk-home-sunset.jpg', time: '7:52 pm',
-        reactions: [{ emoji: '😍', count: 3, mine: true }] },
+        reactions: [{ emoji: '😍', count: 3, mine: true, who: ['chiroben', 'plushpants', 'you'] }] },
       { id: 'h5', from: 'plushpants', type: 'text', text: 'That colour though. Is that the ridge behind your place?', time: '7:53 pm', replyTo: 'h4' },
       { id: 'h5b', from: 'plushpants', type: 'image', text: 'More from the ridge, golden hour', images: [{ scene: 1, name: 'ridge-01-golden-hour.jpg' }, { scene: 3, name: 'ridge-02-valley.jpg' }, { scene: 5, name: 'ridge-03-campfire.jpg' }], time: '7:53 pm' },
       { id: 'h6', from: 'kid', type: 'text', text: 'Yep, ten minutes from the front door.', time: '7:54 pm' },

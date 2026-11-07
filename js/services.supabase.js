@@ -17,7 +17,7 @@
   });
 
   /* ---------------------------------------------------------------- events */
-  var bus = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [] };
+  var bus = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [] };
   var quiet = false;                                  // no events while restoring a saved sign-in (the screens are not drawn yet)
   function emit(type, payload) { if (quiet) return; (bus[type] || []).slice().forEach(function (fn) { try { fn(payload); } catch (e) { console.error(e); } }); }
   S.on = function (type, fn) { if (bus[type]) bus[type].push(fn); };
@@ -93,7 +93,7 @@
   function toPerson(r) {
     var st = r.status;
     if (r.id !== myId) st = (st === 'invisible' || !present[r.id]) ? 'offline' : st;
-    return { id: pid(r.id), name: r.name, c1: r.c1, c2: r.c2, status: st, avatar: r.avatar_path ? publicUrl('avatars', r.avatar_path, r._v) : null, _row: r };
+    return { id: pid(r.id), name: r.name, c1: r.c1, c2: r.c2, status: st, note: r.status_text || '', avatar: r.avatar_path ? publicUrl('avatars', r.avatar_path, r._v) : null, _row: r };
   }
   function putPerson(r) {
     var key = pid(r.id), p = toPerson(r), cur = D.people[key];
@@ -133,8 +133,8 @@
   function groupReacts(rows) {
     var order = [], by = {};
     (rows || []).forEach(function (r) {
-      var g = by[r.emoji]; if (!g) { g = by[r.emoji] = { emoji: r.emoji, count: 0, mine: false }; order.push(g); }
-      g.count++; if (r.user_id === myId) g.mine = true;
+      var g = by[r.emoji]; if (!g) { g = by[r.emoji] = { emoji: r.emoji, count: 0, mine: false, who: [] }; order.push(g); }
+      g.count++; g.who.push(pid(r.user_id)); if (r.user_id === myId) g.mine = true;
     });
     return order;
   }
@@ -229,8 +229,9 @@
     if (row.user_id === myId) return;
     var f = findMsg(row.message_id); if (!f) return;
     var m = f.m, r = m.reactions.filter(function (x) { return x.emoji === row.emoji; })[0];
-    if (ev === 'INSERT') { if (r) r.count++; else m.reactions.push({ emoji: row.emoji, count: 1, mine: false }); }
-    else if (r) { r.count--; if (r.count <= 0) m.reactions = m.reactions.filter(function (x) { return x !== r; }); }
+    var who = pid(row.user_id);
+    if (ev === 'INSERT') { if (r) { r.count++; (r.who = r.who || []).push(who); } else m.reactions.push({ emoji: row.emoji, count: 1, mine: false, who: [who] }); }
+    else if (r) { r.count--; r.who = (r.who || []).filter(function (w) { return w !== who; }); if (r.count <= 0) m.reactions = m.reactions.filter(function (x) { return x !== r; }); }
     emit('message', { conversationId: f.cid, message: m, updated: true });
   }
 
@@ -270,7 +271,13 @@
     on('reactions', 'INSERT', function (p) { onReaction('INSERT', p.new); });
     on('reactions', 'DELETE', function (p) { onReaction('DELETE', p.old); });
     on('conversation_members', '*', function () { clearTimeout(subscribe._t); subscribe._t = setTimeout(loadConversations, 400); });
-    on('profiles', '*', function (p) { if (p.new && p.new.id) { putPerson(p.new); emit('conversations'); } });
+    on('profiles', '*', function (p) {
+      if (p.new && p.new.id) {
+        var fresh = p.eventType === 'INSERT' && p.new.id !== myId && !D.people[pid(p.new.id)];
+        putPerson(p.new); emit('conversations');
+        if (fresh) emit('joined', { person: D.people[pid(p.new.id)] });
+      } else if (p.eventType === 'DELETE' && p.old && p.old.id && D.people[p.old.id]) { delete D.people[p.old.id]; loadConversations(); }
+    });
     ['ideas', 'idea_plus', 'idea_comments'].forEach(function (t) { on(t, '*', function () { clearTimeout(subscribe._ti); subscribe._ti = setTimeout(function () { loadIdeas(true); }, 350); }); });
     hooks.listen.forEach(function (fn) { fn(db, on); });
     var wasDown = false;
@@ -403,6 +410,7 @@
   S.updateProfile = function (patch) {
     var me = D.people.you, upd = {}, work = Promise.resolve();
     if (patch.name && patch.name !== me.name) upd.name = patch.name;
+    if ('note' in patch) upd.status_text = String(patch.note || '').trim().slice(0, 60) || null;
     if (patch.c1) { upd.c1 = patch.c1; upd.c2 = patch.c2 || me.c2; }
     if ('avatar' in patch) {
       if (patch.avatar) {
@@ -420,7 +428,7 @@
       });
     }).catch(function (e) { throw wrapErr(e); });
   };
-  S.getPerson = function (id) { return D.people[id]; };
+  S.getPerson = function (id) { return D.people[id] || FORMER; };
   S.isOwner = function () { return isOwnerFlag; };
   S.setOwnerView = function () { return Promise.resolve(isOwnerFlag); };
 
@@ -521,6 +529,35 @@
       delete msgs[id]; delete loaded[id]; emit('conversations'); return true;
     }).catch(function () { return false; });
   };
+  var FORMER = { id: 'former', name: 'Former member', c1: '#b9b2cf', c2: '#8f87ad', status: 'invisible', avatar: null };
+  function dropConv(id) {
+    var c = conv(id); if (!c) return;
+    var at = D.conversations.indexOf(c); if (at !== -1) D.conversations.splice(at, 1);
+    delete msgs[id]; delete loaded[id]; emit('conversations');
+  }
+  /* Hide a one-to-one chat from your own list. It returns when either of you writes again. */
+  S.hideChat = function (id) {
+    var c = conv(id); if (!c || c.type !== 'direct') return Promise.resolve(false);
+    return sb.rpc('hide_chat', { p_conv: id }).then(function (r) { if (r.error || !r.data) return false; dropConv(id); return true; }).catch(function () { return false; });
+  };
+  /* Owner or group creator only. */
+  S.removeFromGroup = function (id, personId) {
+    return sb.rpc('remove_member', { p_conv: id, p_user: personId }).then(function (r) {
+      if (r.error || !r.data) return false;
+      var c = conv(id); if (c) c.members = (c.members || []).filter(function (m) { return m !== personId; });
+      emit('conversations'); return true;
+    }).catch(function () { return false; });
+  };
+  /* Owner only. Removes the account, their one-to-one chats and their messages. */
+  S.removePerson = function (personId) {
+    return sb.rpc('remove_person', { p_user: personId }).then(function (r) {
+      if (r.error || !r.data) return false;
+      D.conversations.filter(function (c) { return c.type === 'direct' && c.with === personId; }).forEach(function (c) { dropConv(c.id); });
+      D.conversations.forEach(function (c) { if (c.members) c.members = c.members.filter(function (m) { return m !== personId; }); });
+      Object.keys(msgs).forEach(function (k) { msgs[k] = msgs[k].filter(function (m) { return m.from !== personId; }); });
+      delete D.people[personId]; emit('conversations'); return true;
+    }).catch(function () { return false; });
+  };
   S.markRead = function (id) {
     var c = conv(id); if (c && (c.unread || c.mention)) { c.unread = 0; c.mention = false; emit('conversations'); }
     sb.rpc('mark_read', { p_conv: id }).then(function () {});
@@ -588,7 +625,7 @@
       var p2 = cid + '/' + uuid() + '-' + safeName(f.name || blob2.name);
       row.payload.file = { path: p2, name: f.name || blob2.name, size: blob2.size };
       uploads.push(uploadTo('attachments', p2, blob2));
-    } else if (local.type === 'gif' && payload.gif) row.payload.gif = { label: payload.gif.label, emoji: payload.gif.emoji };
+    } else if (local.type === 'gif' && payload.gif) row.payload.gif = { label: payload.gif.label, emoji: payload.gif.emoji, url: payload.gif.url || null, w: payload.gif.w || null, h: payload.gif.h || null, id: payload.gif.id || null };
     else if (local.type === 'link' && payload.link) row.payload.link = { title: payload.link.title, domain: payload.link.domain, url: payload.link.url || null };
     return Promise.all(uploads.concat(imageJob ? [imageJob] : [])).then(function () { return sb.from('messages').insert(row).select('*').single(); }).then(function (r) {
       if (r.error && r.error.code === '23505') return sb.from('messages').select('*').eq('sender_id', myId).eq('client_id', local._client).single();
@@ -659,8 +696,8 @@
     var m = (msgs[id] || []).filter(function (x) { return x.id === messageId; })[0]; if (!m || m._local) return Promise.resolve();
     m.reactions = m.reactions || [];
     var r = m.reactions.filter(function (x) { return x.emoji === emoji; })[0], adding;
-    if (r) { r.mine = !r.mine; adding = r.mine; r.count += adding ? 1 : -1; if (r.count <= 0) m.reactions = m.reactions.filter(function (x) { return x !== r; }); }
-    else { adding = true; m.reactions.push({ emoji: emoji, count: 1, mine: true }); }
+    if (r) { r.mine = !r.mine; adding = r.mine; r.count += adding ? 1 : -1; r.who = (r.who || []).filter(function (w) { return w !== 'you'; }); if (adding) r.who.push('you'); if (r.count <= 0) m.reactions = m.reactions.filter(function (x) { return x !== r; }); }
+    else { adding = true; m.reactions.push({ emoji: emoji, count: 1, mine: true, who: ['you'] }); }
     emit('message', { conversationId: id, message: m, updated: true });
     var q = adding ? sb.from('reactions').insert({ message_id: messageId, user_id: myId, emoji: emoji })
       : sb.from('reactions').delete().eq('message_id', messageId).eq('user_id', myId).eq('emoji', emoji);
@@ -721,7 +758,7 @@
   /* ---------------------------------------------------------------- Tell the Tower */
   function mapIdea(r) {
     var at = new Date(r.created_at).getTime(), from = pid(r.author_id);
-    return { id: r.id, from: from, type: r.type, text: r.text, status: r.status, plus: (r.idea_plus || []).map(function (p) { return pid(p.user_id); }),
+    return { id: r.id, from: from, type: r.type, text: r.text, status: r.status, images: (r.images || []).map(function (path) { return publicUrl('tower', path); }), plus: (r.idea_plus || []).map(function (p) { return pid(p.user_id); }),
       comments: (r.idea_comments || []).slice().sort(function (a, b) { return new Date(a.created_at) - new Date(b.created_at); }).map(function (c) { return { from: pid(c.author_id), text: c.text }; }),
       seen: from === 'you' || at <= towerSeenAt, time: agoLabel(r.created_at) };
   }
@@ -742,12 +779,32 @@
   };
   S.addIdea = function (payload) {
     var text = String((payload && payload.text) || '').trim(); if (!text) return Promise.resolve();
-    return sb.from('ideas').insert({ author_id: myId, type: payload.type === 'bug' ? 'bug' : 'idea', text: text }).select('*').single().then(function (r) {
+    var files = ((payload && payload.images) || []).slice(0, 4);
+    var up = Promise.all(files.map(function (f, n) {
+      return shrink(f, f.name || 'screenshot.png').then(function (r) {
+        var nm = String(r.name || 'screenshot.png').replace(/[^\w.-]+/g, '_').slice(-60), path = myId + '/' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + n) + '-' + nm;
+        return uploadTo('tower', path, r.blob).then(function () { return path; });
+      });
+    }));
+    return up.then(function (paths) {
+      return sb.from('ideas').insert({ author_id: myId, type: payload.type === 'bug' ? 'bug' : 'idea', text: text, images: paths }).select('*').single();
+    }).then(function (r) {
       if (r.error) throw wrapErr(r.error);
       var idea = mapIdea(Object.assign({}, r.data, { idea_plus: [], idea_comments: [] })); idea.seen = true; idea.plus = ['you'];
       tower.unshift(idea); emit('tower', { idea: idea });
       sb.from('idea_plus').insert({ idea_id: r.data.id, user_id: myId }).then(function () {});
       return idea;
+    });
+  };
+  /* GIF search goes through a small Supabase function that holds the GIPHY key. Empty search means trending. */
+  S.searchGifs = function (q, offset) {
+    var fn = (C.config && C.config.gifSearchFunction) || 'gif-search';
+    return sb.functions.invoke(fn, { body: { q: String(q || '').trim(), offset: offset || 0 } }).then(function (r) {
+      if (r.error) {
+        var st = r.error.context && r.error.context.status;
+        throw fail(st === 503 ? 'not_set_up' : st === 429 ? 'busy' : 'unreachable', 'GIF search is not available.');
+      }
+      return { items: (r.data && r.data.items) || [], next: r.data && r.data.next != null ? r.data.next : null };
     });
   };
   S.toggleIdeaPlus = function (id) {

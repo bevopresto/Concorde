@@ -11,7 +11,7 @@
   var C = (window.Concorde = window.Concorde || {});
   var D = C.data;
 
-  var listeners = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [] };
+  var listeners = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [] };
   function emit(type, payload) { listeners[type].forEach(function (fn) { fn(payload); }); }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   // Prototype clock: continues from the last made-up message (8:30 pm) so new messages stay in order.
@@ -26,6 +26,8 @@
   var uid = 0;
 
   var me = D.people.you;
+  function U_store() { return (window.Concorde && Concorde.ui && Concorde.ui.store) || { get: function (k, d) { return d; }, set: function () {} }; }
+  var FORMER = { id: 'former', name: 'Former member', c1: '#b9b2cf', c2: '#8f87ad', status: 'invisible', avatar: null };
   var update = { available: false, version: null, installing: false };
   var net = { online: true, reconnecting: false }, stash = null, ownerView = true;
   var invites = [{ id: 'iv1', email: 'mate@example.com', status: 'joined', time: '3 days ago' }, { id: 'iv2', email: 'cousin@example.com', status: 'pending', time: 'Yesterday' }];
@@ -103,12 +105,14 @@
     setStatus: function (status) {
       me.status = status; emit('conversations'); return Promise.resolve(me);
     },
+    getPersonVolume: function (id) { return +(U_store().get('vol.p.' + id, 100)); },
+    setPersonVolume: function (id, pct) { U_store().set('vol.p.' + id, Math.round(+pct)); },
     updateProfile: function (patch) {
       return wait(80).then(function () { Object.keys(patch).forEach(function (k) { me[k] = patch[k]; }); return me; });
     },
 
     /* ----- People and conversations ----- */
-    getPerson: function (id) { return D.people[id]; },
+    getPerson: function (id) { return D.people[id] || FORMER; },
     listConversations: function () { return Promise.resolve(D.conversations); },
     /* Start a chat. One person opens (or makes) a one-to-one chat; several people make a group. Resolves with the conversation id. */
     createConversation: function (memberIds, name, look) {
@@ -146,6 +150,26 @@
     },
     setPinned: function (id, on) { var c = conv(id); if (c) { c.pinned = !!on; emit('conversations'); } return Promise.resolve(c); },
     setChatMuted: function (id, on) { var c = conv(id); if (c) { c.muted = !!on; emit('conversations'); } return Promise.resolve(c); },
+    /* Hide a one-to-one chat from your list. */
+    hideChat: function (id) {
+      var c = conv(id); if (!c || c.type !== 'direct') return Promise.resolve(false);
+      D.conversations.splice(D.conversations.indexOf(c), 1); emit('conversations'); return Promise.resolve(true);
+    },
+    /* Owner or group creator removes someone from a group. */
+    removeFromGroup: function (id, personId) {
+      var c = conv(id); if (!c || c.type !== 'group' || personId === 'you') return Promise.resolve(false);
+      var p = D.people[personId]; c.members = c.members.filter(function (m) { return m !== personId; });
+      var msg = { id: 'u' + (++uid), from: 'system', type: 'system', icon: 'log-out', text: (p ? p.name : 'Someone') + ' was removed from the group', time: nowLabel() };
+      D.messages[id].push(msg); emit('message', { conversationId: id, message: msg }); emit('conversations'); return Promise.resolve(true);
+    },
+    /* Owner removes a person from Concorde entirely. */
+    removePerson: function (personId) {
+      if (!ownerView || personId === 'you' || !D.people[personId]) return Promise.resolve(false);
+      D.conversations.filter(function (c) { return c.type === 'direct' && c.with === personId; }).forEach(function (c) { D.conversations.splice(D.conversations.indexOf(c), 1); delete D.messages[c.id]; });
+      Object.keys(D.messages).forEach(function (k) { D.messages[k] = D.messages[k].filter(function (m) { return m.from !== personId; }); });
+      D.conversations.forEach(function (c) { if (c.members) c.members = c.members.filter(function (m) { return m !== personId; }); });
+      delete D.people[personId]; emit('conversations'); return Promise.resolve(true);
+    },
     /* Leave a group. Others see a note in the thread; the group then drops out of your list. */
     leaveGroup: function (id) {
       var c = conv(id); if (!c || c.type !== 'group') return Promise.resolve(false);
@@ -251,12 +275,26 @@
       var r = m.reactions.filter(function (x) { return x.emoji === emoji; })[0];
       if (r) {
         r.mine = !r.mine; r.count += r.mine ? 1 : -1;
+        r.who = (r.who || []).filter(function (w) { return w !== 'you'; }); if (r.mine) r.who.push('you');
         if (r.count <= 0) m.reactions = m.reactions.filter(function (x) { return x !== r; });
       } else {
-        m.reactions.push({ emoji: emoji, count: 1, mine: true });
+        m.reactions.push({ emoji: emoji, count: 1, mine: true, who: ['you'] });
       }
       emit('message', { conversationId: id, message: m, updated: true });
       return Promise.resolve(m);
+    },
+    /* Pretend GIF search: coloured tiles, so the picker can be tried without a real library. */
+    searchGifs: function (q, offset) {
+      var words = (String(q || '').trim() || 'trending').split(/\s+/).slice(0, 2).join(' '), cols = [['#F2A07B', '#E0549F'], ['#5B8DEF', '#7C5CFA'], ['#3FBF8F', '#5B8DEF'], ['#B58CFF', '#F06BA8']], items = [];
+      for (var n = 0; n < 8; n++) {
+        var c = cols[n % 4], h = 120 + (n % 3) * 40, svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="' + h + '"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + c[0] + '"/><stop offset="1" stop-color="' + c[1] + '"/></linearGradient></defs><rect width="200" height="' + h + '" fill="url(#g)"/><circle cx="100" cy="' + h / 2 + '" r="26" fill="#fff" opacity=".55"><animate attributeName="r" values="18;34;18" dur="2s" repeatCount="indefinite"/></circle></svg>', u = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+        items.push({ id: 'mock' + n + words, title: words + ' ' + (n + 1), url: u, preview: u, w: 200, h: h });
+      }
+      return Promise.resolve({ items: items, next: null });
+    },
+    _fakeJoin: function () {
+      var p = { id: 'newbie', name: 'Newbie', c1: '#4fb3a5', c2: '#7c5cfa', status: 'online', avatar: null };
+      D.people[p.id] = p; emit('joined', { person: p });
     },
     _fakeReply: function (id) {
       var c = conv(id), ids = otherMemberIds(c);
@@ -459,7 +497,7 @@
     towerUnread: function () { return tower.filter(function (i) { return i.from !== 'you' && !i.seen; }).length; },
     markTowerSeen: function () { tower.forEach(function (i) { i.seen = true; }); emit('tower', {}); },
     addIdea: function (payload) {
-      var idea = { id: 't' + (++uid), from: 'you', type: payload.type === 'bug' ? 'bug' : 'idea', text: payload.text, status: 'new', plus: ['you'], comments: [], seen: true, time: 'Just now' };
+      var idea = { id: 't' + (++uid), from: 'you', type: payload.type === 'bug' ? 'bug' : 'idea', text: payload.text, images: (payload.images || []).map(function (f) { return URL.createObjectURL(f); }), status: 'new', plus: ['you'], comments: [], seen: true, time: 'Just now' };
       tower.unshift(idea); emit('tower', { idea: idea }); return Promise.resolve(idea);
     },
     toggleIdeaPlus: function (id) {

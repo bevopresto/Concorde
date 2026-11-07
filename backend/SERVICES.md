@@ -182,3 +182,8 @@ Real: `electron-updater` against GitHub Releases. Window controls and tray are E
 
 Loading: `js/config.js` selects the backend. In live mode `index.html` loads `services.supabase.js` and `services.calls.js` **after** `services.js`;
 each replaces only the functions it owns, so the UI never knows the difference. Keep the mock working: it is how the UI is still demoed offline.
+
+## Housekeeping (v0.15)
+- `hideChat(id)` hides a one-to-one chat from your own list; it returns when either person writes again. Resolves true/false.
+- `removeFromGroup(conversationId, personId)` owner or group creator only; leaves a "was removed from the group" note.
+- `removePerson(personId)` owner only; deletes the account, their one-to-one chats and their messages. Resolves true/false.

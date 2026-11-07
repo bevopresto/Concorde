@@ -157,6 +157,12 @@ app.whenReady().then(() => {
   ses.setPermissionRequestHandler((wc, perm, cb, details) => cb(ok.has(perm) && mine(wc, details.requestingUrl)));
   ses.setPermissionCheckHandler((wc, perm, origin) => ok.has(perm) && (origin || '').startsWith(ORIGIN));
 
+  // YouTube refuses to play embedded videos when the page has no web address of its own, so tell it where we are from.
+  ses.webRequest.onBeforeSendHeaders({ urls: ['*://*.youtube.com/*', '*://*.youtube-nocookie.com/*', '*://*.googlevideo.com/*', '*://*.ytimg.com/*'] }, (details, cb) => {
+    details.requestHeaders['Referer'] = 'https://concorde.app/';
+    cb({ requestHeaders: details.requestHeaders });
+  });
+
   // Sharing the screen: ask the app page to show its picker, then hand back the chosen window or screen.
   ses.setDisplayMediaRequestHandler(async (_req, cb) => {
     try {

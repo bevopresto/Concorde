@@ -173,4 +173,48 @@ select (public.create_ring(:'dm'::uuid, 'video')).status as dnd_status;
 reset role;
 select t_assert((select count(*) from public.messages where conversation_id = :'dm' and text like '%Do not disturb%') = 1, 'dnd note');
 
+
+-- ---- housekeeping (v0.15): hide chat, remove from group, remove person
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select public.create_group('Crew', array['00000000-0000-0000-0000-00000000000b'::uuid,'00000000-0000-0000-0000-00000000000c'::uuid], null, null) as crew \gset
+select public.hide_chat(:'dm'::uuid) as hid \gset
+select t_assert(:'hid' = 't', 'hide_chat works on a direct chat');
+select t_assert((select count(*) from public.my_conversations() where id = :'dm') = 0, 'hidden chat leaves my list');
+select public.hide_chat(:'crew'::uuid) as hidg \gset
+select t_assert(:'hidg' = 'f', 'groups cannot be hidden (leave instead)');
+select t_as('00000000-0000-0000-0000-00000000000b');
+select t_assert((select count(*) from public.my_conversations() where id = :'dm') = 1, 'other person still sees the chat');
+reset role;
+insert into public.messages (conversation_id, sender_id, type, text) values (:'dm', '00000000-0000-0000-0000-00000000000b', 'text', 'hello again');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert((select count(*) from public.my_conversations() where id = :'dm') = 1, 'chat returns when someone writes');
+select public.hide_chat(:'dm'::uuid);
+select public.open_direct('00000000-0000-0000-0000-00000000000b'::uuid);
+select t_assert((select count(*) from public.my_conversations() where id = :'dm') = 1, 'starting a chat again unhides it');
+select t_as('00000000-0000-0000-0000-00000000000b');
+select public.remove_member(:'crew'::uuid, '00000000-0000-0000-0000-00000000000c'::uuid) as rm1 \gset
+select t_assert(:'rm1' = 'f', 'a normal member cannot remove someone');
+select t_as('00000000-0000-0000-0000-00000000000a');
+select public.remove_member(:'crew'::uuid, '00000000-0000-0000-0000-00000000000a'::uuid) as rm2 \gset
+select t_assert(:'rm2' = 'f', 'cannot remove yourself that way');
+select public.remove_member(:'crew'::uuid, '00000000-0000-0000-0000-00000000000c'::uuid) as rm3 \gset
+select t_assert(:'rm3' = 't', 'owner removes a member');
+reset role;
+select t_assert(not exists (select 1 from public.conversation_members where conversation_id = :'crew' and user_id = '00000000-0000-0000-0000-00000000000c'), 'member row gone');
+select t_assert(exists (select 1 from public.messages where conversation_id = :'crew' and text like '% was removed from the group'), 'removal note left');
+insert into public.messages (conversation_id, sender_id, type, text) values (:'dm', '00000000-0000-0000-0000-00000000000c', 'text', 'x');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000b');
+select public.remove_person('00000000-0000-0000-0000-00000000000c'::uuid) as rp1 \gset
+select t_assert(:'rp1' = 'f', 'a normal member cannot remove a person');
+select t_as('00000000-0000-0000-0000-00000000000a');
+select public.remove_person('00000000-0000-0000-0000-00000000000a'::uuid) as rp2 \gset
+select t_assert(:'rp2' = 'f', 'owner cannot remove themselves');
+select public.remove_person('00000000-0000-0000-0000-00000000000c'::uuid) as rp3 \gset
+select t_assert(:'rp3' = 't', 'owner removes a person');
+reset role;
+select t_assert(not exists (select 1 from public.profiles where id = '00000000-0000-0000-0000-00000000000c'), 'profile gone');
+select t_assert(not exists (select 1 from auth.users where id = '00000000-0000-0000-0000-00000000000c'), 'account gone');
+select t_assert(not exists (select 1 from public.messages where sender_id is null and type = 'text'), 'no ghost messages');
+select t_assert(not exists (select 1 from public.conversations c where c.type = 'direct' and not exists (select 1 from public.conversation_members m where m.conversation_id = c.id)), 'no empty chats left');
+
 \echo ALL-CHECKS-RAN

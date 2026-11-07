@@ -172,7 +172,9 @@
       function pick(k) { var id = HW.chosen(k); return id && list.some(function (d) { return d.deviceId === id && d.kind === KINDS[k]; }) ? id : undefined; }
       var mic = pick('mic'), cam = pick('cam'), spk = pick('spk');
       var audio = constraintsFor(pref('profileMode', 'voice')); if (mic) audio.deviceId = mic;
-      var o = { adaptiveStream: true, dynacast: true, audioCaptureDefaults: audio };
+      // Screen shares go out as one sharp 1080p picture (text stays readable) instead of the small default.
+      var o = { adaptiveStream: { pixelDensity: 'screen' }, dynacast: true, audioCaptureDefaults: audio,
+        publishDefaults: { screenShareEncoding: { maxBitrate: 6000000, maxFramerate: 30 }, screenShareSimulcastLayers: [], degradationPreference: 'maintain-resolution' } };
       if (cam) o.videoCaptureDefaults = { deviceId: cam };
       if (spk) o.audioOutput = { deviceId: spk };
       return o;
@@ -202,6 +204,9 @@
     return Promise.resolve().then(function () { return t.setProcessor(gainProcessor()); }).catch(function () { gainOn = false; });
   }
   HW.setInputVolume = function (v) { putPref('vol.inp', v); return applyInputVolume(); };
+  /* One friend louder than the rest? Turn just them down. Percent, 0 to 100, remembered per person. */
+  function personVol(id) { var v = +pref('vol.p.' + id, 100); return isFinite(v) ? Math.max(0, Math.min(100, v)) : 100; }
+  function elVolume(el) { return Math.max(0, Math.min(1, outVolume() * personVol(el.dataset.pid || '') / 100)); }
   function outVolume() { return Math.max(0, Math.min(1, (+pref('vol.out', 70)) / 100)); }
   /* A short two-note chime through the chosen speaker at the current output volume, so you can hear what you're setting. */
   var pingUrl = null, lastPing = 0;
@@ -225,7 +230,12 @@
   };
   HW.setOutputVolume = function (v) {
     putPref('vol.out', v);
-    if (audioBox) audioBox.querySelectorAll('audio').forEach(function (a) { a.volume = Math.max(0, Math.min(1, v / 100)); });
+    if (audioBox) audioBox.querySelectorAll('audio').forEach(function (a) { a.volume = elVolume(a); });
+  };
+  S.getPersonVolume = personVol;
+  S.setPersonVolume = function (id, pct) {
+    putPref('vol.p.' + id, Math.max(0, Math.min(100, Math.round(+pct))));
+    if (audioBox) audioBox.querySelectorAll('audio[data-pid="' + String(id).replace(/"/g, '') + '"]').forEach(function (a) { a.volume = elVolume(a); });
   };
   HW.setProfile = function (mode) {
     putPref('profileMode', mode);
@@ -269,8 +279,8 @@
   function wireRoom(r, cid) {
     var E = LK.RoomEvent;
     function changed() { if (joinedConv === cid) announce(cid); }
-    r.on(E.TrackSubscribed, function (track) {
-      if (track.kind === 'audio') { var el = track.attach(); el.volume = Math.max(0, Math.min(1, (+pref('vol.out', 70)) / 100)); ensureAudioBox().appendChild(el); }
+    r.on(E.TrackSubscribed, function (track, pub, part) {
+      if (track.kind === 'audio') { var el = track.attach(); el.dataset.pid = (part && part.identity) || ''; el.volume = elVolume(el); ensureAudioBox().appendChild(el); }
       changed();
     });
     r.on(E.TrackUnsubscribed, function (track) {
@@ -375,7 +385,7 @@
   };
   S.startScreenShare = function (opts) {
     if (!room) return Promise.resolve();
-    return room.localParticipant.setScreenShareEnabled(true, { audio: !!(opts && opts.sound) }).catch(function (e) {
+    return room.localParticipant.setScreenShareEnabled(true, { audio: !!(opts && opts.sound), resolution: { width: 1920, height: 1080, frameRate: 30 }, contentHint: 'detail' }).catch(function (e) {
       if (e && /permission|denied|abort|cancel/i.test(String(e.name || e.message))) return;   // they closed the picker
       toast('Couldn’t share your screen.');
     }).then(function () { announce(joinedConv); pushState(); });

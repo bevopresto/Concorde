@@ -558,3 +558,120 @@ end $$;
 
 grant execute on function public.reap_calls() to authenticated;
 grant execute on function public.create_ring(uuid, text), public.end_ring(uuid, text), public.miss_ring(uuid) to authenticated;
+
+-- ================================================================ housekeeping (v0.15)
+-- Hide a chat from your own list, remove someone from a group, remove a person from Concorde.
+alter table public.conversation_members add column if not exists hidden boolean not null default false;
+
+-- A hidden chat comes back by itself when anyone writes in it.
+create or replace function public.unhide_on_message() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.type <> 'system' then
+    update public.conversation_members set hidden = false where conversation_id = new.conversation_id and hidden;
+  end if;
+  return new;
+end $$;
+drop trigger if exists messages_unhide on public.messages;
+create trigger messages_unhide after insert on public.messages for each row execute function public.unhide_on_message();
+
+-- Same list as before, minus chats you hid.
+create or replace function public.my_conversations() returns table (
+  id uuid, type text, name text, c1 text, c2 text, avatar_path text, other_id uuid,
+  pinned boolean, muted boolean, unread bigint, mention boolean, last_text text, last_type text, last_at timestamptz, last_sender uuid, last_deleted boolean
+) language sql stable security invoker set search_path = public as $$
+  select c.id, c.type, c.name, c.c1, c.c2, c.avatar_path,
+         (select m2.user_id from public.conversation_members m2 where m2.conversation_id = c.id and m2.user_id <> auth.uid() limit 1) as other_id,
+         m.pinned, m.muted,
+         (select count(*) from public.messages x where x.conversation_id = c.id and x.created_at > m.last_read_at and x.sender_id is distinct from auth.uid() and x.type <> 'system' and x.deleted_at is null) as unread,
+         exists (select 1 from public.messages x join public.profiles me on me.id = auth.uid()
+                  where x.conversation_id = c.id and x.created_at > m.last_read_at and x.sender_id is distinct from auth.uid() and x.deleted_at is null
+                    and (x.text ~* ('(^|\W)@(' || me.name || '|everyone)\y'))) as mention,
+         l.text, l.type, l.created_at, l.sender_id, (l.deleted_at is not null)
+  from public.conversation_members m
+  join public.conversations c on c.id = m.conversation_id
+  left join lateral (select x.* from public.messages x where x.conversation_id = c.id and x.type <> 'system' order by x.created_at desc limit 1) l on true
+  where m.user_id = auth.uid() and not m.hidden
+  order by coalesce(l.created_at, c.created_at) desc;
+$$;
+
+-- Starting a chat with someone you hid brings the old chat back.
+create or replace function public.open_direct(p_other uuid) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); k text; cid uuid;
+begin
+  if uid is null or p_other is null or p_other = uid then raise exception 'bad_request'; end if;
+  if not exists (select 1 from public.profiles where id = p_other) then raise exception 'no_such_person'; end if;
+  k := least(uid::text, p_other::text) || ':' || greatest(uid::text, p_other::text);
+  select id into cid from public.conversations where direct_key = k;
+  if cid is null then
+    insert into public.conversations (type, direct_key, created_by) values ('direct', k, uid) returning id into cid;
+    insert into public.conversation_members (conversation_id, user_id) values (cid, uid), (cid, p_other);
+    insert into public.messages (conversation_id, sender_id, type, text) values (cid, null, 'system', 'A new chat started');
+  else
+    update public.conversation_members set hidden = false where conversation_id = cid and user_id = uid;
+  end if;
+  return cid;
+end $$;
+
+-- Hide a one-to-one chat from your list (the other person keeps theirs).
+create or replace function public.hide_chat(p_conv uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.conversations c where c.id = p_conv and c.type = 'direct') or not public.is_member(p_conv) then return false; end if;
+  update public.conversation_members set hidden = true where conversation_id = p_conv and user_id = auth.uid();
+  return true;
+end $$;
+
+-- The owner (or whoever made the group) removes someone from a group.
+create or replace function public.remove_member(p_conv uuid, p_user uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); nm text;
+begin
+  if p_user = uid then return false; end if;
+  if not exists (select 1 from public.conversations c where c.id = p_conv and c.type = 'group'
+                  and (public.is_owner() or c.created_by = uid)) then return false; end if;
+  if not exists (select 1 from public.conversation_members where conversation_id = p_conv and user_id = p_user) then return false; end if;
+  select name into nm from public.profiles where id = p_user;
+  insert into public.messages (conversation_id, sender_id, type, text, payload) values (p_conv, null, 'system', nm || ' was removed from the group', '{"icon":"log-out"}');
+  delete from public.conversation_members where conversation_id = p_conv and user_id = p_user;
+  return true;
+end $$;
+
+-- The owner removes a person from Concorde completely: their account, their one-to-one chats and their messages.
+-- They can come back later with a fresh invite.
+create or replace function public.remove_person(p_user uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); nm text; g record;
+begin
+  if not public.is_owner() or p_user is null or p_user = uid then return false; end if;
+  if coalesce((select is_owner from public.profiles where id = p_user), true) then return false; end if;
+  select name into nm from public.profiles where id = p_user;
+  for g in select m.conversation_id from public.conversation_members m join public.conversations c on c.id = m.conversation_id
+            where m.user_id = p_user and c.type = 'group' loop
+    insert into public.messages (conversation_id, sender_id, type, text, payload) values (g.conversation_id, null, 'system', nm || ' was removed from Concorde', '{"icon":"log-out"}');
+  end loop;
+  delete from public.messages where sender_id = p_user;
+  delete from public.conversations where id in (
+    select m.conversation_id from public.conversation_members m join public.conversations c on c.id = m.conversation_id
+     where m.user_id = p_user and c.type = 'direct');
+  delete from auth.users where id = p_user;
+  return true;
+end $$;
+
+grant execute on function public.hide_chat(uuid), public.remove_member(uuid, uuid), public.remove_person(uuid) to authenticated;
+
+-- ================================================================ v0.16
+-- Custom status message (words or an emoji) shown under a person's name.
+alter table public.profiles add column if not exists status_text text;
+do $$ begin
+  alter table public.profiles add constraint profiles_status_text_len check (status_text is null or char_length(status_text) <= 60);
+exception when duplicate_object then null; end $$;
+
+-- ================================================================ Tell the Tower screenshots (v0.16)
+alter table public.ideas add column if not exists images jsonb not null default '[]'::jsonb;
+insert into storage.buckets (id, name, public) values ('tower', 'tower', true) on conflict (id) do nothing;
+drop policy if exists tw_read  on storage.objects;
+drop policy if exists tw_write on storage.objects;
+create policy tw_read  on storage.objects for select using (bucket_id = 'tower');
+create policy tw_write on storage.objects for insert to authenticated with check (bucket_id = 'tower' and (storage.foldername(name))[1] = auth.uid()::text);
