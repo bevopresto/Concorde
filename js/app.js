@@ -843,7 +843,7 @@
           return '<button type="button" class="ring-sw" role="radio" aria-checked="' + on + '" aria-label="' + r[2] + ' ring" title="' + r[2] + '" data-action="ring-pick" data-i="' + i + '" style="--c1:' + r[0] + ';--c2:' + r[1] + '"></button>';
         }).join('') + '</div></div></div>' +
         '<label class="name-label" for="set-name">Display name</label><label class="field" for="set-name"><input id="set-name" type="text" value="' + esc(me.name) + '"></label>' +
-        '<label class="name-label" for="set-note">Status message</label><label class="field" for="set-note"><input id="set-note" type="text" maxlength="60" placeholder="What are you up to? Words or an emoji" autocomplete="off" value="' + esc(me.note || '') + '"></label>' +
+        '<label class="name-label" for="set-note">Status message</label><div class="note-row"><label class="field" for="set-note"><input id="set-note" type="text" maxlength="60" placeholder="What are you up to? Words or an emoji" autocomplete="off" value="' + esc(me.note || '') + '"></label><button type="button" class="btn-round" id="note-emoji" aria-label="Pick an emoji" aria-expanded="false">\u263A</button></div><div class="note-emojis" id="note-emojis" hidden></div>' +
         '<input id="file-avatar" type="file" accept="image/*" hidden></div>' +
         '<div class="set-section"><h3>Status</h3><p class="pane-note">Change it any time by clicking your card at the bottom of the chat list.</p></div>';
     }
@@ -904,6 +904,17 @@
     if (note) note.addEventListener('change', function () {
       S.updateProfile({ note: note.value.trim().slice(0, 60) }).then(function () { renderMe(); renderHead(); renderDetails(); });
     });
+    var ne = $('#note-emoji', pane), nl = $('#note-emojis', pane);
+    if (ne && note && nl) {
+      var STATUS_EMOJI = ['\uD83D\uDE34', '\uD83C\uDFAE', '\uD83C\uDFA7', '\uD83D\uDCBB', '\uD83D\uDCDA', '\uD83C\uDF55', '\u2615', '\uD83C\uDF7A', '\uD83C\uDFC3', '\uD83D\uDE97', '\u2708\uFE0F', '\uD83C\uDFD6\uFE0F', '\uD83C\uDF27\uFE0F', '\uD83E\uDD12', '\uD83E\uDD2F', '\uD83D\uDE0E', '\uD83D\uDE4F', '\uD83D\uDD25', '\u2728', '\uD83C\uDF89', '\u2764\uFE0F', '\uD83D\uDC9C', '\uD83D\uDE02', '\uD83E\uDD14', '\uD83D\uDC40', '\uD83D\uDCA4', '\uD83D\uDEAB', '\uD83D\uDCDE', '\uD83C\uDFB5', '\uD83C\uDF1F'];
+      nl.innerHTML = STATUS_EMOJI.map(function (e) { return '<button type="button" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('');
+      ne.addEventListener('click', function () { nl.hidden = !nl.hidden; ne.setAttribute('aria-expanded', String(!nl.hidden)); });
+      nl.addEventListener('click', function (ev) {
+        var b = ev.target.closest('button[data-e]'); if (!b) return;
+        var v = note.value.trim(); note.value = (v ? v + ' ' : '') + b.dataset.e; note.value = note.value.slice(0, 60);
+        note.dispatchEvent(new Event('change')); note.focus();
+      });
+    }
     var fa = $('#file-avatar', pane);
     if (fa) fa.addEventListener('change', function (ev) {
       var f = ev.target.files[0]; if (!f) return;

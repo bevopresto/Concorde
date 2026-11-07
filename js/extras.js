@@ -358,7 +358,7 @@
     var status = owner
       ? '<div class="segments mini" role="group" aria-label="Status">' + TSTAT.map(function (s) { return '<button data-action="tower-status" data-id="' + i.id + '" data-s="' + s[0] + '" aria-pressed="' + (i.status === s[0]) + '">' + s[1] + '</button>'; }).join('') + '</div>'
       : '<span class="tstat ' + i.status + '">' + TSTAT.filter(function (s) { return s[0] === i.status; })[0][1] + '</span>';
-    return '<article class="tcard" data-id="' + i.id + '"><header>' + avatar(p, 38) + '<div><b>' + (i.from === 'you' ? 'You' : esc(p.name)) + '</b><span>' + esc(i.time) + '</span></div>' +
+    return '<article class="tcard' + (i.status === 'done' ? ' done' : '') + '" data-id="' + i.id + '"><header>' + avatar(p, 38) + '<div><b>' + (i.from === 'you' ? 'You' : esc(p.name)) + '</b><span>' + esc(i.time) + '</span></div>' +
       '<span class="ttype ' + i.type + '">' + ico(i.type === 'bug' ? 'bug' : 'lightbulb', 'sm') + (i.type === 'bug' ? 'Bug' : 'Idea') + '</span></header>' +
       '<p>' + esc(i.text) + '</p>' +
       ((i.images && i.images.length) ? '<div class="tshots">' + i.images.map(function (u, n) { return '<button class="tshot" data-action="tower-shot" data-u="' + esc(u) + '" aria-label="View screenshot ' + (n + 1) + '"><img alt="" loading="lazy" src="' + esc(u) + '"></button>'; }).join('') + '</div>' : '') +
@@ -370,6 +370,8 @@
   function paintTower() {
     if (!tw) return;
     var list = S.listIdeas().filter(function (i) { return tw.filter === 'all' || i.type === tw.filter; });
+    /* finished items sink to the bottom, keeping their order */
+    list = list.filter(function (i) { return i.status !== 'done'; }).concat(list.filter(function (i) { return i.status === 'done'; }));
     tw.el.querySelector('.tower-list').innerHTML = list.length ? list.map(cardHTML).join('') : '<p class="empty">Nothing here yet. Be the first to tell the Tower something.</p>';
     tw.el.querySelectorAll('.tower-filter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.f === tw.filter)); });
   }

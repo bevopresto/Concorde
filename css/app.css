@@ -1180,3 +1180,16 @@ body.framed .mention-banner, body.framed .ring-box { top: 56px; }
 .gif-msg { position: relative; display: inline-block; max-width: min(300px, 100%); border-radius: 16px; overflow: hidden; background: rgba(120, 100, 170, .15); line-height: 0; }
 .gif-img { display: block; width: 100%; max-height: 300px; object-fit: cover; }
 .gif-msg em { position: absolute; left: 8px; bottom: 8px; font-style: normal; font-size: 10.5px; font-weight: 800; line-height: 1.4; padding: 2px 8px; border-radius: 999px; background: rgba(0, 0, 0, .45); color: #fff; }
+
+/* status emoji picker */
+.note-row { display: flex; gap: 10px; align-items: center; }
+.note-row .field { flex: 1; min-width: 0; }
+.note-emojis { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 10px; padding: 10px; border-radius: 16px; background: var(--surface); box-shadow: var(--raise-1); }
+.note-emojis[hidden] { display: none; }
+.note-emojis button { height: 34px; border-radius: 10px; font-size: 19px; transition: all .12s ease; }
+.note-emojis button:hover { box-shadow: var(--raise-1); transform: translateY(-1px); }
+
+/* finished Tower items */
+.tcard.done { background: linear-gradient(135deg, rgb(63 191 143 / .20), rgb(63 191 143 / .08)); box-shadow: var(--raise-1), inset 0 0 0 1.5px rgb(63 191 143 / .55); }
+.tcard.done .tstat.done { background: rgb(63 191 143 / .22); color: #1F8A62; box-shadow: none; }
+:root[data-theme='dark'] .tcard.done .tstat.done { color: #6FE0B2; }
