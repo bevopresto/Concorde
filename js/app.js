@@ -754,7 +754,7 @@
     return '<div class="select-wrap' + (up ? ' up' : '') + '" data-sel="' + key + '"><span class="name-label" id="lbl-' + key + '">' + d.label + '</span>' +
       '<button class="select-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="lbl-' + key + '" data-action="select-toggle"><span class="lead">' + ico(d.icon, 'sm') + '</span><span class="label">' + esc(d.list[i]) + '</span><span class="chev">' + ico('chevron-down', 'sm') + '</span></button>' +
       '<ul class="select-list" role="listbox" aria-label="' + d.label + '" hidden>' + d.list.map(function (m, n) {
-        return '<li role="option" tabindex="-1" data-action="select-option" data-sel="' + key + '" data-i="' + n + '" aria-selected="' + (n === i) + '">' + esc(m) + (n === i ? ico('check', 'sm') : '') + '</li>';
+        return '<li role="option" tabindex="-1" data-action="select-option" data-sel="' + key + '" data-i="' + n + '" title="' + esc(m) + '" aria-selected="' + (n === i) + '"><span class="opt-t">' + esc(m) + '</span>' + (n === i ? ico('check', 'sm') : '') + '</li>';
       }).join('') + '</ul></div>';
   }
   function switchRow(label, hint, action, on) {
