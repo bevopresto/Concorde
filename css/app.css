@@ -1119,3 +1119,10 @@ body.desktop .tb-btn { -webkit-app-region: no-drag; }
 .select-btn { min-width: 0; overflow: hidden; }
 .select-list li .opt-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .select-list li svg, .select-list li .ic { flex: none; }
+/* Dropdown lists: long device names wrap inside the list instead of spilling out. */
+.select-list { grid-template-columns: minmax(0, 1fr); }
+.select-list li { min-width: 0; height: auto; min-height: 42px; padding-top: 8px; padding-bottom: 8px; }
+.select-list li .opt-t { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.3; }
+/* An open dropdown sits fully on top of everything below it. */
+.select-wrap:has(.select-list:not([hidden])) { z-index: 30; }
+.select-list { background: var(--surface); isolation: isolate; }
