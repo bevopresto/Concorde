@@ -372,9 +372,12 @@
   function paintTower() {
     if (!tw) return;
     var list = S.listIdeas().filter(function (i) { return tw.filter === 'all' || i.type === tw.filter; });
-    /* finished items sink to the bottom, keeping their order */
-    list = list.filter(function (i) { return i.status !== 'done'; }).concat(list.filter(function (i) { return i.status === 'done'; }));
-    tw.el.querySelector('.tower-list').innerHTML = list.length ? list.map(cardHTML).join('') : '<p class="empty">Nothing here yet. Be the first to tell the Tower something.</p>';
+    /* finished items tuck into a collapsed "Done" group at the bottom */
+    var open = list.filter(function (i) { return i.status !== 'done'; }), done = list.filter(function (i) { return i.status === 'done'; });
+    var html = open.map(cardHTML).join('');
+    if (!open.length && !done.length) html = '<p class="empty">Nothing here yet. Be the first to tell the Tower something.</p>';
+    if (done.length) html += '<section class="tdone' + (tw.doneOpen ? ' open' : '') + '"><button class="tdone-head" data-action="tower-done-toggle" aria-expanded="' + !!tw.doneOpen + '">' + ico('check', 'sm') + '<span>Done</span><span class="count">' + done.length + '</span><span class="chev">' + ico('chevron-down', 'sm') + '</span></button>' + (tw.doneOpen ? '<div class="tdone-body">' + done.map(cardHTML).join('') + '</div>' : '') + '</section>';
+    tw.el.querySelector('.tower-list').innerHTML = html;
     tw.el.querySelectorAll('.tower-filter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.f === tw.filter)); });
   }
   function openTower() {
@@ -410,6 +413,7 @@
   A['tower-close'] = closeTower;
   A['tower-scrim'] = function (t, ev) { if (ev.target === t) closeTower(); };
   A['tower-type'] = function (t) { tw.type = t.dataset.t; tw.el.querySelectorAll('[data-action="tower-type"]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === t)); }); };
+  A['tower-done-toggle'] = function () { tw.doneOpen = !tw.doneOpen; paintTower(); };
   A['tower-filter'] = function (t) { tw.filter = t.dataset.f; paintTower(); };
   /* Screenshots on an idea or bug: up to four, pasted or picked. */
   var MAX_SHOTS = 4;

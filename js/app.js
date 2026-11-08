@@ -514,8 +514,18 @@
   }
   /* Custom emoji: :name: turns into the picture the owner uploaded. Unknown names stay as plain text. */
   function cemojiUrl(name) { var l = S.customEmoji ? S.customEmoji() : []; for (var i = 0; i < l.length; i++) if (l[i].name === name) return l[i].url; return null; }
-  function emojify(html) { return html.replace(/:([a-z0-9_]{2,24}):/g, function (all, n) { var u = cemojiUrl(n); return u ? '<img class="cemoji" src="' + esc(u) + '" alt=":' + n + ':" title=":' + n + ':">' : all; }); }
-  function emojiHtml(e) { var m = /^:([a-z0-9_]{2,24}):$/.exec(e); if (m) { var u = cemojiUrl(m[1]); if (u) return '<img class="cemoji" src="' + esc(u) + '" alt="' + e + '" title="' + e + '">'; } return esc(e); }
+  var UNI_EMOJI = /(?:[\u{1F1E6}-\u{1F1FF}]{2}|\p{Extended_Pictographic}(?:\uFE0F|\u20E3|[\u{1F3FB}-\u{1F3FF}]|\u200D\p{Extended_Pictographic})*)/gu;
+  function emojify(html) {
+    return html.replace(/:([a-z0-9_]{2,24}):/g, function (all, n) { var u = cemojiUrl(n); return u ? '<img class="cemoji" src="' + esc(u) + '" alt=":' + n + ':" title=":' + n + ':">' : all; })
+      .replace(UNI_EMOJI, '<span class="em">$&</span>');
+  }
+  /* A message that is only emoji (up to 10) gets the big, bubble-less look. Returns how many, or 0. */
+  function emojiOnlyCount(m) {
+    if (!m || m.type !== 'text' || m.replyTo || m.deleted || !m.text || ytIdOf(m.text)) return 0;
+    var n = 0, rest = String(m.text).replace(/:([a-z0-9_]{2,24}):/g, function (all, nm) { if (cemojiUrl(nm)) { n++; return ''; } return all; }).replace(UNI_EMOJI, function () { n++; return ''; });
+    return rest.trim() === '' && n >= 1 && n <= 10 ? n : 0;
+  }
+  function emojiHtml(e) { var m = /^:([a-z0-9_]{2,24}):$/.exec(e); if (m) { var u = cemojiUrl(m[1]); if (u) return '<img class="cemoji" src="' + esc(u) + '" alt="' + e + '" title="' + e + '">'; } return '<span class="re">' + esc(e) + '</span>'; }
   /* Links become clickable (they open in your normal browser). noLinks keeps plain text, for banners. */
   function richText(t, noLinks) {
     t = String(t || ''); if (noLinks) return emojify(mentionize(t));
@@ -655,7 +665,7 @@
         '<span class="avatar-slot">' + (last ? '<span class="pwrap" data-person="' + m.from + '">' + avatar(p, 34) + '</span>' : '') + '</span>' +
         '<div class="msg-body">' +
         (isGroup && !me && runStart ? '<span class="msg-name">' + esc(p.name) + '</span>' : '') +
-        '<div class="bubble' + (m.failed ? ' failed' : '') + (mediaOnly ? ' media-only' : '') + (state.editing === m.id ? ' editing' : '') + '">' + q + (state.editing === m.id ? editBox(m) : msgContent(m)) + '</div>' + reacts +
+        '<div class="bubble' + (m.failed ? ' failed' : '') + (mediaOnly ? ' media-only' : '') + (function () { var c = state.editing === m.id ? 0 : emojiOnlyCount(m); return c ? ' emoji-only ' + (c === 1 ? 'e1' : c <= 3 ? 'e2' : 'e4') : ''; })() + (state.editing === m.id ? ' editing' : '') + '">' + q + (state.editing === m.id ? editBox(m) : msgContent(m)) + '</div>' + reacts +
         (m.failed ? '<span class="stamp failed">' + ico('triangle-alert', 'sm') + 'Not sent <button class="link-btn" data-action="msg-retry" data-id="' + m.id + '">Try again</button> <button class="link-btn" data-action="msg-discard" data-id="' + m.id + '">Delete</button></span>' : last ? '<span class="stamp">' + esc(m.time) + '</span>' : '') + '</div></div>';
     });
     var box = $('#messages');
