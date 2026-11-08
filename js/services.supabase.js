@@ -17,7 +17,7 @@
   });
 
   /* ---------------------------------------------------------------- events */
-  var bus = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [], poked: [] };
+  var bus = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [], poked: [], emoji: [], reacted: [], library: [], sound: [] };
   var quiet = false;                                  // no events while restoring a saved sign-in (the screens are not drawn yet)
   function emit(type, payload) { if (quiet) return; (bus[type] || []).slice().forEach(function (fn) { try { fn(payload); } catch (e) { console.error(e); } }); }
   S.on = function (type, fn) { if (bus[type]) bus[type].push(fn); };
@@ -143,6 +143,7 @@
     var m = { id: r.id, from: r.sender_id ? pid(r.sender_id) : 'system', type: r.type, text: r.text || '', createdAt: r.created_at,
       time: clock(r.created_at), d: dayDiff(r.created_at), replyTo: r.reply_to || null, reactions: groupReacts(r.reactions) };
     if (r.edited_at) m.edited = true;
+    if (p.effect) m.effect = p.effect;
     if (r.deleted_at) { m.deleted = true; m.reactions = []; m.text = ''; return m; }
     if (r.type === 'image') {
       m.images = (p.images || []).map(function (i) { return { image: urlCache[i.path] || '', name: i.name }; });
@@ -232,6 +233,7 @@
     var who = pid(row.user_id);
     if (ev === 'INSERT') { if (r) { r.count++; (r.who = r.who || []).push(who); } else m.reactions.push({ emoji: row.emoji, count: 1, mine: false, who: [who] }); }
     else if (r) { r.count--; r.who = (r.who || []).filter(function (w) { return w !== who; }); if (r.count <= 0) m.reactions = m.reactions.filter(function (x) { return x !== r; }); }
+    if (ev === 'INSERT') emit('reacted', { conversationId: f.cid, emoji: row.emoji, from: who });
     emit('message', { conversationId: f.cid, message: m, updated: true });
   }
 
@@ -278,6 +280,9 @@
         if (fresh) emit('joined', { person: D.people[pid(p.new.id)] });
       } else if (p.eventType === 'DELETE' && p.old && p.old.id && D.people[p.old.id]) { delete D.people[p.old.id]; loadConversations(); }
     });
+    on('custom_emoji', '*', function () { loadEmoji().then(function () { emit('emoji'); }); });
+    on('gif_library', '*', function () { loadLibrary().then(function () { emit('library'); }); });
+    on('sounds', '*', function () { loadLibrary().then(function () { emit('library'); }); });
     on('pokes', 'INSERT', function (p) { if (p.new && p.new.to_id === myId && D.people[pid(p.new.from_id)]) emit('poked', { from: pid(p.new.from_id) }); });
     ['ideas', 'idea_plus', 'idea_comments'].forEach(function (t) { on(t, '*', function () { clearTimeout(subscribe._ti); subscribe._ti = setTimeout(function () { loadIdeas(true); }, 350); }); });
     hooks.listen.forEach(function (fn) { fn(db, on); });
@@ -343,12 +348,105 @@
 
   /* ---------------------------------------------------------------- boot after sign-in */
   function bootData() {
-    return loadProfiles().then(function () { return Promise.all([loadConversations(), loadIdeas(true), loadInvites()]); }).then(function () {
+    return loadProfiles().then(function () { return Promise.all([loadConversations(), loadIdeas(true), loadInvites(), loadEmoji(), loadLibrary()]); }).then(function () {
       return Promise.all(hooks.boot.map(function (fn) { return fn(); })).catch(function () {});
     }).then(function () {
       signedIn = true; subscribe(); startInvitePoll(); return true;
     });
   }
+  /* ---------------------------------------------------------------- custom emoji (owner adds, everyone uses) */
+  var emojiList = [];
+  function loadEmoji() {
+    return sb.from('custom_emoji').select('name,path,created_at').order('name').then(function (r) {
+      if (r.error) return;
+      emojiList = (r.data || []).map(function (x) { return { name: x.name, url: publicUrl('emoji', x.path) }; });
+    }, function () {});
+  }
+  S.customEmoji = function () { return emojiList.slice(); };
+  /* Pictures are squashed to 128 px so they stay light; GIFs under 400 KB go up as they are. */
+  function emojiBlob(file) {
+    if (file.type === 'image/gif') return Promise.resolve(file.size <= 400000 ? file : null);
+    if (typeof createImageBitmap !== 'function') return Promise.resolve(file);
+    return createImageBitmap(file).then(function (bmp) {
+      var k = Math.min(1, 128 / Math.max(bmp.width, bmp.height)), w = Math.max(1, Math.round(bmp.width * k)), h = Math.max(1, Math.round(bmp.height * k)), cv = document.createElement('canvas');
+      cv.width = w; cv.height = h; cv.getContext('2d').drawImage(bmp, 0, 0, w, h); if (bmp.close) bmp.close();
+      return new Promise(function (res) { cv.toBlob(res, 'image/png'); });
+    });
+  }
+  S.addCustomEmoji = function (name, file) {
+    name = String(name || '').toLowerCase().replace(/^:|:$/g, '');
+    if (!isOwnerFlag) return Promise.resolve({ ok: false, error: 'Only the owner can add emoji.' });
+    if (!/^[a-z0-9_]{2,24}$/.test(name)) return Promise.resolve({ ok: false, error: 'Use 2 to 24 letters, numbers or _ for the name.' });
+    if (emojiList.some(function (e) { return e.name === name; })) return Promise.resolve({ ok: false, error: 'That name is taken.' });
+    return emojiBlob(file).then(function (blob) {
+      if (!blob) return { ok: false, error: 'That GIF is too big (400 KB max).' };
+      var path = name + '-' + Date.now() + (blob.type === 'image/gif' ? '.gif' : '.png');
+      return uploadTo('emoji', path, blob).then(function () { return sb.from('custom_emoji').insert({ name: name, path: path, created_by: myId }); }).then(function (r) {
+        if (r.error) return { ok: false, error: r.error.code === '23505' ? 'That name is taken.' : 'Couldn’t save it. Try again.' };
+        return loadEmoji().then(function () { emit('emoji'); return { ok: true, name: name }; });
+      });
+    }).catch(function () { return { ok: false, error: 'Couldn’t add it. Try again.' }; });
+  };
+  S.removeCustomEmoji = function (name) {
+    var e = emojiList.filter(function (x) { return x.name === name; })[0]; if (!e || !isOwnerFlag) return Promise.resolve(false);
+    return sb.from('custom_emoji').delete().eq('name', name).then(function (r) {
+      if (r.error) return false;
+      emojiList = emojiList.filter(function (x) { return x.name !== name; }); emit('emoji');
+      var path = e.url.split('/emoji/')[1]; if (path) sb.storage.from('emoji').remove([decodeURIComponent(path.split('?')[0])]);
+      return true;
+    });
+  };
+
+  /* ---------------------------------------------------------------- GIF library + soundboard (owner adds, everyone uses) */
+  var libGifs = [], clips = [];
+  function loadLibrary() {
+    return Promise.all([sb.from('gif_library').select('id,name,path,w,h').order('created_at', { ascending: false }), sb.from('sounds').select('id,name,emoji,path').order('created_at')]).then(function (r) {
+      if (!r[0].error) libGifs = (r[0].data || []).map(function (x) { return { id: x.id, name: x.name, url: publicUrl('gifs', x.path), w: x.w, h: x.h }; });
+      if (!r[1].error) clips = (r[1].data || []).map(function (x) { return { id: x.id, name: x.name, emoji: x.emoji, url: publicUrl('sounds', x.path) }; });
+    }, function () {});
+  }
+  S.libraryGifs = function () { return libGifs.slice(); };
+  S.sounds = function () { return clips.slice(); };
+  function safeName(f, ext) { return Date.now() + '-' + String(f.name || 'file').replace(/[^\w.-]+/g, '_').slice(-40).replace(/\.[^.]*$/, '') + ext; }
+  S.addLibraryGif = function (name, file, w, h) {
+    name = String(name || '').trim().slice(0, 40);
+    if (!isOwnerFlag) return Promise.resolve({ ok: false, error: 'Only the owner can add GIFs.' });
+    if (!name) return Promise.resolve({ ok: false, error: 'Give it a name.' });
+    if (!/^image\/(gif|webp|png|jpeg)$/.test(file.type)) return Promise.resolve({ ok: false, error: 'Use a GIF, WebP, PNG or JPEG.' });
+    if (file.size > 3000000) return Promise.resolve({ ok: false, error: 'That file is over 3 MB.' });
+    var path = safeName(file, file.type === 'image/gif' ? '.gif' : file.type === 'image/webp' ? '.webp' : file.type === 'image/png' ? '.png' : '.jpg');
+    return uploadTo('gifs', path, file).then(function () { return sb.from('gif_library').insert({ name: name, path: path, w: w || 200, h: h || 200, created_by: myId }); }).then(function (r) {
+      if (r.error) return { ok: false, error: 'Couldn’t save it. Try again.' };
+      return loadLibrary().then(function () { emit('library'); return { ok: true }; });
+    }).catch(function () { return { ok: false, error: 'Couldn’t add it. Try again.' }; });
+  };
+  S.removeLibraryGif = function (id) {
+    var g = libGifs.filter(function (x) { return x.id === id; })[0]; if (!g || !isOwnerFlag) return Promise.resolve(false);
+    return sb.from('gif_library').delete().eq('id', id).then(function (r) {
+      if (r.error) return false; libGifs = libGifs.filter(function (x) { return x.id !== id; }); emit('library');
+      var p = g.url.split('/gifs/')[1]; if (p) sb.storage.from('gifs').remove([decodeURIComponent(p.split('?')[0])]); return true;
+    });
+  };
+  S.addSound = function (name, emoji, file) {
+    name = String(name || '').trim().slice(0, 30);
+    if (!isOwnerFlag) return Promise.resolve({ ok: false, error: 'Only the owner can add sounds.' });
+    if (!name) return Promise.resolve({ ok: false, error: 'Give it a name.' });
+    if (!/^audio\//.test(file.type)) return Promise.resolve({ ok: false, error: 'Use an audio file (MP3, WAV or OGG).' });
+    if (file.size > 600000) return Promise.resolve({ ok: false, error: 'Keep it under 600 KB (about 10 seconds).' });
+    var path = safeName(file, '.' + ((/audio\/(mpeg|mp3)/.test(file.type) && 'mp3') || (/wav/.test(file.type) && 'wav') || (/ogg/.test(file.type) && 'ogg') || 'm4a'));
+    return uploadTo('sounds', path, file).then(function () { return sb.from('sounds').insert({ name: name, emoji: String(emoji || '🔊').trim().slice(0, 8) || '🔊', path: path, created_by: myId }); }).then(function (r) {
+      if (r.error) return { ok: false, error: 'Couldn’t save it. Try again.' };
+      return loadLibrary().then(function () { emit('library'); return { ok: true }; });
+    }).catch(function () { return { ok: false, error: 'Couldn’t add it. Try again.' }; });
+  };
+  S.removeSound = function (id) {
+    var c = clips.filter(function (x) { return x.id === id; })[0]; if (!c || !isOwnerFlag) return Promise.resolve(false);
+    return sb.from('sounds').delete().eq('id', id).then(function (r) {
+      if (r.error) return false; clips = clips.filter(function (x) { return x.id !== id; }); emit('library');
+      var p = c.url.split('/sounds/')[1]; if (p) sb.storage.from('sounds').remove([decodeURIComponent(p.split('?')[0])]); return true;
+    });
+  };
+
   function loadMyProfile() {
     return sb.auth.getUser().then(function (u) {
       if (u.error || !u.data.user) return null;
@@ -574,8 +672,8 @@
     (msgs[id] || []).slice().reverse().forEach(function (m) {
       if (m.deleted) return;
       var who = (D.people[m.from] || {}).name || '';
-      if (m.type === 'image') (m.images && m.images.length ? m.images : (m.image ? [{ image: m.image, name: m.name }] : [])).forEach(function (i) { if (i.image) out.media.push(i); });
-      else if (m.type === 'file' && m.file) out.files.push({ name: m.file.name, meta: m.file.size + (who ? ' · ' + who : '') });
+      if (m.type === 'image') (m.images && m.images.length ? m.images : (m.image ? [{ image: m.image, name: m.name }] : [])).forEach(function (i, n) { if (i.image) out.media.push({ image: i.image, name: i.name, mid: m.id, i: n }); });
+      else if (m.type === 'file' && m.file) out.files.push({ name: m.file.name, meta: m.file.size + (who ? ' · ' + who : ''), url: m.file.url || '' });
       else if (m.type === 'link' && m.link) out.links.push({ name: m.link.title, meta: m.link.domain });
       /* plain web addresses typed into a normal message count as links too */
       if (m.type === 'text' && m.text) (m.text.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || []).forEach(function (u) {
@@ -615,6 +713,7 @@
   function stamp(local) { local.time = clock(local.createdAt); local.d = 0; }
   function doSend(cid, local) {
     var payload = local._payload || {}, row = { conversation_id: cid, sender_id: myId, type: local.type, text: local.text || '', client_id: local._client, payload: {} };
+    if (payload.effect) row.payload.effect = payload.effect;
     var reply = local.replyTo && !/^local-/.test(local.replyTo) ? local.replyTo : null; if (reply) row.reply_to = reply;
     var uploads = [];
     var imageJob = null;
@@ -665,7 +764,7 @@
     var now = new Date().toISOString();
     var local = { id: 'local-' + uuid(), _local: true, _client: uuid(), _payload: payload, from: 'you', type: payload.type || 'text', text: payload.text || '', createdAt: now, replyTo: payload.replyTo || null, reactions: [] };
     stamp(local);
-    ['file', 'link', 'gif', 'image', 'images', 'name'].forEach(function (k) {
+    ['file', 'link', 'gif', 'image', 'images', 'name', 'effect'].forEach(function (k) {
       if (!payload[k]) return;
       if (k === 'file') local.file = { name: payload.file.name, size: payload.file.size && typeof payload.file.size === 'string' ? payload.file.size : fmtSize(payload.file.blob && payload.file.blob.size) };
       else if (k === 'images') local.images = payload.images.map(function (i) { return { image: i.image, name: i.name }; });

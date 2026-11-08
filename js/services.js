@@ -11,7 +11,11 @@
   var C = (window.Concorde = window.Concorde || {});
   var D = C.data;
 
-  var listeners = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [], poked: [] };
+  function svgEmoji(c) { return 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="' + c + '"/><circle cx="11" cy="13" r="2" fill="#fff"/><circle cx="21" cy="13" r="2" fill="#fff"/><path d="M9 20q7 7 14 0" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>'); }
+  var mockEmoji = [{ name: 'partyblob', url: svgEmoji('#e8590c') }, { name: 'sadblob', url: svgEmoji('#4263eb') }];
+  var mockLib = [{ id: 'lg1', name: 'happy dance', url: svgEmoji('#2b8a3e'), w: 200, h: 200 }];
+  var mockSounds = [{ id: 'sn1', name: 'Airhorn', emoji: '📯', url: '' }, { id: 'sn2', name: 'Sad trombone', emoji: '🎺', url: '' }];
+  var listeners = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [], poked: [], emoji: [], reacted: [], library: [], sound: [] };
   function emit(type, payload) { listeners[type].forEach(function (fn) { fn(payload); }); }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   // Prototype clock: continues from the last made-up message (8:30 pm) so new messages stay in order.
@@ -156,6 +160,23 @@
       if (this._pk[personId] && now - this._pk[personId] < 8000) return Promise.resolve('slow');
       this._pk[personId] = now; return Promise.resolve(true);
     },
+    customEmoji: function () { return mockEmoji.slice(); },
+    addCustomEmoji: function (name, file) {
+      name = String(name || '').toLowerCase().replace(/^:|:$/g, '');
+      if (!/^[a-z0-9_]{2,24}$/.test(name)) return Promise.resolve({ ok: false, error: 'Use 2 to 24 letters, numbers or _ for the name.' });
+      if (mockEmoji.some(function (e) { return e.name === name; })) return Promise.resolve({ ok: false, error: 'That name is taken.' });
+      mockEmoji.push({ name: name, url: (file && file.type && window.URL) ? URL.createObjectURL(file) : svgEmoji('#888') }); emit('emoji'); return Promise.resolve({ ok: true, name: name });
+    },
+    removeCustomEmoji: function (name) { mockEmoji = mockEmoji.filter(function (e) { return e.name !== name; }); emit('emoji'); return Promise.resolve(true); },
+    simulateReacted: function (emoji) { emit('reacted', { conversationId: null, emoji: emoji, from: 'chiroben' }); },
+    libraryGifs: function () { return mockLib.slice(); },
+    addLibraryGif: function (name, file, w, h) { if (!String(name || '').trim()) return Promise.resolve({ ok: false, error: 'Give it a name.' }); mockLib.unshift({ id: 'lg' + Date.now(), name: name, url: (file && window.URL && file.size != null) ? URL.createObjectURL(file) : svgEmoji('#2b8a3e'), w: w || 200, h: h || 200 }); emit('library'); return Promise.resolve({ ok: true }); },
+    removeLibraryGif: function (id) { mockLib = mockLib.filter(function (g) { return g.id !== id; }); emit('library'); return Promise.resolve(true); },
+    sounds: function () { return mockSounds.slice(); },
+    addSound: function (name, emoji, file) { if (!String(name || '').trim()) return Promise.resolve({ ok: false, error: 'Give it a name.' }); mockSounds.push({ id: 'sn' + Date.now(), name: name, emoji: emoji || '🔊', url: (file && window.URL && file.size != null) ? URL.createObjectURL(file) : '' }); emit('library'); return Promise.resolve({ ok: true }); },
+    removeSound: function (id) { mockSounds = mockSounds.filter(function (g) { return g.id !== id; }); emit('library'); return Promise.resolve(true); },
+    playSound: function (id) { return Promise.resolve(true); },
+    simulateSound: function (id, from) { emit('sound', { id: id, from: from || 'chiroben' }); },
     simulatePoke: function (from) { emit('poked', { from: from }); },
     hideChat: function (id) {
       var c = conv(id); if (!c || c.type !== 'direct') return Promise.resolve(false);

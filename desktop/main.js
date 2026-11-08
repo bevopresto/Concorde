@@ -16,7 +16,7 @@ app.setAppUserModelId('com.concorde.app');
 
 let win = null, tray = null, quitting = false;
 let st = { status: 'online', muted: false, unread: 0, mention: false };
-let update = { available: false, version: null, installing: false };
+let update = { available: false, version: null, installing: false, checking: false };
 let pendingPick = null;
 
 const img = (n) => nativeImage.createFromPath(path.join(ASSETS, n));
@@ -68,6 +68,7 @@ function buildTrayMenu() {
     { label: 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, click: (mi) => app.setLoginItemSettings({ openAtLogin: mi.checked, args: ['--hidden'] }) },
     { type: 'separator' }
   ];
+  items.push({ label: update.checking ? 'Checking for updates…' : 'Check for updates', enabled: !update.checking && !update.installing, click: manualCheck });
   if (update.available) items.push({ label: 'Restart to update to v' + update.version, click: installNow }, { type: 'separator' });
   items.push({ label: 'Quit Concorde', click: () => { quitting = true; app.quit(); } });
   return Menu.buildFromTemplate(items);
@@ -95,10 +96,23 @@ function setupUpdates() {
   if (!app.isPackaged) return;
   try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { return; }
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-downloaded', (info) => { update = { available: true, version: info.version, installing: false }; pushUpdate(); refreshTray(); });
-  autoUpdater.on('error', () => { /* offline or no release yet: try again later */ });
+  autoUpdater.on('update-downloaded', (info) => { update = { available: true, version: info.version, installing: false }; endManual(); if (manual === false) { /* quiet */ } pushUpdate(); refreshTray(); });
+  autoUpdater.on('error', () => { if (manual) tell('Couldn’t check for updates', 'Check your internet connection and try again.'); endManual(); });
+  autoUpdater.on('update-available', (info) => { if (manual) tell('Update found', 'Downloading v' + info.version + '. The tray menu will offer a restart when it’s ready.'); });
+  autoUpdater.on('update-not-available', () => { if (manual) tell('You’re up to date', 'Concorde v' + app.getVersion() + ' is the latest.'); endManual(); });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 12000); setInterval(check, 4 * 60 * 60 * 1000);
+}
+/* "Check for updates" in the tray menu: asks now, and says what it found. */
+let manual = false;
+function tell(title, body) { try { new Notification({ title, body, icon: path.join(ASSETS, 'icon.png') }).show(); } catch (e) { /* notifications unavailable */ } }
+function endManual() { manual = false; update.checking = false; refreshTray(); }
+function manualCheck() {
+  if (!autoUpdater) { tell('Updates', 'Updates only work in the installed app.'); return; }
+  if (update.available) { tell('Update ready', 'Use “Restart to update” in this menu.'); return; }
+  manual = true; update.checking = true; refreshTray();
+  autoUpdater.checkForUpdates().catch(() => { tell('Couldn’t check for updates', 'Check your internet connection and try again.'); endManual(); });
+  setTimeout(() => { if (manual) { endManual(); } }, 60000);
 }
 function pushUpdate() { if (win && !win.isDestroyed()) win.webContents.send('desktop:update', update); }
 function installNow() {

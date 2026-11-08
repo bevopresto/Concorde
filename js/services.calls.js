@@ -295,6 +295,10 @@
       var id = top ? pid(top.identity) : null;
       if (id !== speakingId) { speakingId = id; changed(); }
     });
+    r.on(E.DataReceived, function (data, part, kind, topic) {
+      if (topic !== 'sfx') return;
+      try { var m = JSON.parse(new TextDecoder().decode(data)); emit('sound', { id: m.id, from: part ? pid(part.identity) : null }); } catch (e) {}
+    });
     r.on(E.Reconnecting, function () { toast('Reconnecting to the call…'); });
     r.on(E.Reconnected, function () { toast('Back in the call'); });
     r.on(E.Disconnected, function () { if (joinedConv === cid && !leaving) teardown('You were disconnected from the call.'); });
@@ -306,6 +310,12 @@
       }
     });
   }
+  /* Soundboard: tell everyone in the call which clip to play. Each person's app plays it. */
+  S.playSound = function (id) {
+    if (!room || !joinedConv) return Promise.resolve(false);
+    var data = new TextEncoder().encode(JSON.stringify({ id: id }));
+    return room.localParticipant.publishData(data, { reliable: true, topic: 'sfx' }).then(function () { return true; }, function () { return false; });
+  };
   function pushState() {
     if (!joinedConv || !room) return;
     var lp = room.localParticipant;

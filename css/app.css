@@ -1211,3 +1211,55 @@ a.row-item:hover { box-shadow: var(--raise-1); }
 /* poke: the whole window gives a little shake */
 @keyframes poke-shake { 0%, 100% { transform: none; } 15% { transform: translateX(-9px) rotate(-.4deg); } 30% { transform: translateX(8px) rotate(.4deg); } 45% { transform: translateX(-6px); } 60% { transform: translateX(5px); } 80% { transform: translateX(-2px); } }
 .poked { animation: poke-shake .65s ease; }
+
+/* links tray: long addresses stay inside the panel */
+.row-item { min-width: 0; max-width: 100%; }
+.row-item > span:last-child { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.row-item > span:last-child > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-item .file-icon { flex: none; }
+
+/* media and files trays behave like the chat: tap a photo to enlarge it, tap a file to save it */
+.thumbs .thumb-btn { padding: 0; border: 0; background: none; border-radius: inherit; cursor: zoom-in; display: block; min-width: 0; aspect-ratio: 1; }
+.thumbs .thumb-btn img { width: 100%; height: 100%; display: block; }
+button.row-item { width: 100%; text-align: left; background: none; border: 0; padding: 4px; border-radius: 14px; cursor: pointer; color: inherit; }
+button.row-item:hover { box-shadow: var(--raise-1); }
+.row-go { margin-left: auto; flex: none; color: var(--ink-2); display: grid; place-items: center; }
+
+/* ---- celebration effects + custom emoji (v0.19) ---- */
+.fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9999; }
+.cemoji { width: 1.35em; height: 1.35em; vertical-align: -0.3em; object-fit: contain; display: inline-block; }
+.cemoji.big { width: 2.6em; height: 2.6em; }
+.react .cemoji { width: 1.25em; height: 1.25em; vertical-align: middle; }
+.popover.emoji .cemoji-btn { display: inline-flex; align-items: center; justify-content: center; position: relative; }
+.popover.emoji .cemoji-btn img { width: 26px; height: 26px; object-fit: contain; }
+.popover.emoji .cemoji-btn .cx { position: absolute; top: -4px; right: -4px; width: 16px; height: 16px; border-radius: 50%; border: 0; background: var(--danger, #e03131); color: #fff; font-size: 11px; line-height: 16px; padding: 0; cursor: pointer; display: none; }
+.popover.emoji.manage .cemoji-btn .cx { display: block; }
+.emoji-add { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 2px 8px; font-size: 12px; }
+.emoji-add input[type=text] { flex: 1; min-width: 90px; }
+.emoji-add .err { color: var(--danger, #e03131); width: 100%; }
+.fx-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; opacity: .7; }
+
+/* ---- GIF library + soundboard (v0.20) ---- */
+.gif-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.gif-tabs button { flex: 1; height: 30px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--text-2, inherit); }
+.gif-tabs button[aria-selected="true"] { box-shadow: var(--inset-1, inset 2px 2px 5px rgb(0 0 0 / .12)); color: var(--accent-a); }
+.lib-item { position: relative; display: block; margin-bottom: 10px; }
+.lib-item > button:first-child { width: 100%; height: auto; display: block; border-radius: 14px; overflow: hidden; box-shadow: var(--raise-1); }
+.lib-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lib-item .cx, .sb-item .cx { position: absolute; top: -4px; right: -4px; width: 18px; height: 18px; border-radius: 50%; border: 0; background: var(--danger, #e03131); color: #fff; font-size: 12px; line-height: 18px; padding: 0; cursor: pointer; }
+.popover.gifs .gif-col { display: flex; flex-direction: column; }
+.popover.gifs .gif-grid { max-height: 300px; overflow-y: auto; align-items: start; }
+.lib-prev { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; }
+.popover.sb-pop { flex-direction: column; border-radius: 22px; width: 320px; max-height: 60vh; overflow-y: auto; align-items: stretch; z-index: 60; }
+.sb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sb-item { position: relative; display: block; }
+.popover.react-pop button.sb-clip { width: 100%; height: 44px; border-radius: 14px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; box-shadow: var(--raise-1); text-align: left; }
+.sb-em { font-size: 18px; } .sb-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popover.sb-pop .emoji-h { margin: 2px 4px 8px; }
+.popover.react-pop .cx { width: 18px; height: 18px; font-size: 12px; line-height: 18px; position: absolute; top: -4px; right: -4px; border-radius: 50%; }
+.popover .emoji-add button.btn { height: 30px; padding: 0 14px; border-radius: 999px; font-size: 12px; font-weight: 700; width: auto; box-shadow: var(--raise-1); color: var(--accent-a); background: transparent; }
+.popover .emoji-add button.btn.ghost { color: inherit; opacity: .75; box-shadow: none; }
+.popover .emoji-add { grid-column: 1 / -1; margin-top: 8px; }
+.popover.gifs .gif-grid { height: auto; min-height: 120px; grid-auto-rows: auto; }
+.popover.gifs .gif-col { gap: 0; }
+.popover.sb-pop { max-height: 55vh; }

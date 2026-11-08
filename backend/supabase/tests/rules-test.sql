@@ -232,4 +232,30 @@ select t_as('00000000-0000-0000-0000-00000000000d');
 select t_assert((select count(*) from public.pokes) = 0, 'a bystander sees no pokes');
 reset role;
 
+-- custom emoji
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+insert into public.custom_emoji (name, path) values ('partyblob', 'partyblob-1.png');
+select t_assert((select count(*) from public.custom_emoji) = 1, 'owner can add an emoji');
+select t_expect_fail($$insert into public.custom_emoji (name, path) values ('Bad Name!', 'x.png')$$, 'check');
+select t_as('00000000-0000-0000-0000-00000000000b');
+select t_assert((select count(*) from public.custom_emoji) = 1, 'everyone can see custom emoji');
+select t_expect_fail($$insert into public.custom_emoji (name, path) values ('sneaky', 'x.png')$$, 'row-level security');
+delete from public.custom_emoji where name = 'partyblob';
+select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert((select count(*) from public.custom_emoji) = 1, 'a non-owner cannot delete an emoji');
+reset role;
+
+-- gif library + soundboard
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+insert into public.gif_library (name, path) values ('dance', 'dance.gif');
+insert into public.sounds (name, path) values ('airhorn', 'airhorn.mp3');
+select t_as('00000000-0000-0000-0000-00000000000b');
+select t_assert((select count(*) from public.gif_library) = 1 and (select count(*) from public.sounds) = 1, 'everyone can see library gifs and sounds');
+select t_expect_fail($$insert into public.sounds (name, path) values ('sneaky', 'x.mp3')$$, 'row-level security');
+select t_expect_fail($$insert into public.gif_library (name, path) values ('sneaky', 'x.gif')$$, 'row-level security');
+delete from public.sounds; delete from public.gif_library;
+select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert((select count(*) from public.sounds) = 1 and (select count(*) from public.gif_library) = 1, 'a non-owner cannot delete them');
+reset role;
+
 \echo ALL-CHECKS-RAN

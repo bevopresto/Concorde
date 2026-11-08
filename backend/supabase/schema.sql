@@ -704,3 +704,71 @@ grant execute on function public.poke(uuid) to authenticated;
 do $$ begin
   begin alter publication supabase_realtime add table public.pokes; exception when duplicate_object then null; when undefined_object then null; end;
 end $$;
+
+-- ================================================================ custom emoji (v0.19)
+-- Only the owner adds or removes them. Everyone can see and use them.
+insert into storage.buckets (id, name, public) values ('emoji', 'emoji', true) on conflict (id) do nothing;
+drop policy if exists em_read   on storage.objects;
+drop policy if exists em_write  on storage.objects;
+drop policy if exists em_delete on storage.objects;
+create policy em_read   on storage.objects for select using (bucket_id = 'emoji');
+create policy em_write  on storage.objects for insert to authenticated with check (bucket_id = 'emoji' and public.is_owner());
+create policy em_delete on storage.objects for delete to authenticated using (bucket_id = 'emoji' and public.is_owner());
+
+create table if not exists public.custom_emoji (
+  name        text primary key check (name ~ '^[a-z0-9_]{2,24}$'),
+  path        text not null,
+  created_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+alter table public.custom_emoji enable row level security;
+drop policy if exists cemoji_read  on public.custom_emoji;
+drop policy if exists cemoji_write on public.custom_emoji;
+create policy cemoji_read  on public.custom_emoji for select to authenticated using (true);
+create policy cemoji_write on public.custom_emoji for all to authenticated using (public.is_owner()) with check (public.is_owner());
+do $$ begin
+  begin alter publication supabase_realtime add table public.custom_emoji; exception when duplicate_object then null; when undefined_object then null; end;
+end $$;
+
+-- ================================================================ GIF library + soundboard (v0.20)
+-- Only the owner adds or removes. Everyone can see and use them.
+insert into storage.buckets (id, name, public) values ('gifs', 'gifs', true) on conflict (id) do nothing;
+insert into storage.buckets (id, name, public) values ('sounds', 'sounds', true) on conflict (id) do nothing;
+drop policy if exists gl_read   on storage.objects;
+drop policy if exists gl_write  on storage.objects;
+drop policy if exists gl_delete on storage.objects;
+create policy gl_read   on storage.objects for select using (bucket_id in ('gifs', 'sounds'));
+create policy gl_write  on storage.objects for insert to authenticated with check (bucket_id in ('gifs', 'sounds') and public.is_owner());
+create policy gl_delete on storage.objects for delete to authenticated using (bucket_id in ('gifs', 'sounds') and public.is_owner());
+
+create table if not exists public.gif_library (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null check (char_length(name) between 1 and 40),
+  path        text not null,
+  w           int  not null default 200,
+  h           int  not null default 200,
+  created_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+create table if not exists public.sounds (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null check (char_length(name) between 1 and 30),
+  emoji       text not null default '🔊' check (char_length(emoji) <= 8),
+  path        text not null,
+  created_by  uuid references public.profiles(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+alter table public.gif_library enable row level security;
+alter table public.sounds enable row level security;
+drop policy if exists gl_tbl_read  on public.gif_library;
+drop policy if exists gl_tbl_write on public.gif_library;
+drop policy if exists sn_tbl_read  on public.sounds;
+drop policy if exists sn_tbl_write on public.sounds;
+create policy gl_tbl_read  on public.gif_library for select to authenticated using (true);
+create policy gl_tbl_write on public.gif_library for all to authenticated using (public.is_owner()) with check (public.is_owner());
+create policy sn_tbl_read  on public.sounds for select to authenticated using (true);
+create policy sn_tbl_write on public.sounds for all to authenticated using (public.is_owner()) with check (public.is_owner());
+do $$ begin
+  begin alter publication supabase_realtime add table public.gif_library; exception when duplicate_object then null; when undefined_object then null; end;
+  begin alter publication supabase_realtime add table public.sounds;      exception when duplicate_object then null; when undefined_object then null; end;
+end $$;

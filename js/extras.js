@@ -145,7 +145,7 @@
     ];
     if (m.type === 'text' && m.text) items.push({ icon: 'copy', label: 'Copy text', run: function () { copyText(m.text, 'Text copied'); } });
     if (m.type === 'link') items.push({ icon: 'link-2', label: 'Copy link', run: function () { copyText('https://' + m.link.domain, 'Link copied'); } });
-    if (m.type === 'image' || m.type === 'file') items.push({ icon: 'download', label: 'Save', run: function () { toast('Saving works once chat goes live.'); } });
+    if (m.type === 'image' || m.type === 'file') items.push({ icon: 'download', label: 'Save', run: function () { saveMessage(m); } });
     if (m.from === 'you') {
       items.push({ sep: true });
       if (m.type === 'text') items.push({ icon: 'pencil', label: 'Edit', run: function () { startEdit(m.id); } });
@@ -569,7 +569,22 @@
   A['viewer-prev'] = function () { step(-1); };
   A['viewer-next'] = function () { step(1); };
   A['viewer-go'] = function (t) { vw.i = +t.dataset.i; paintViewer(); };
-  A['viewer-save'] = function () { toast('Saving works once chat goes live.'); };
+  A['viewer-save'] = function () { var it = vw && vw.list[vw.i]; saveUrl(it && it.image, (it && it.name) || 'photo.jpg'); };
+  /* One way to save anything: photos, files and the Files tray all come through here. */
+  function saveUrl(url, name) {
+    if (!url) { toast('Nothing to save here yet.'); return; }
+    name = String(name || 'download').replace(/[\\/:*?"<>|]+/g, '_');
+    fetch(url).then(function (r) { if (!r.ok) throw new Error('bad'); return r.blob(); }).then(function (b) {
+      var a = document.createElement('a'), u = URL.createObjectURL(b); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(u); }, 4000); toast('Saved ' + name);
+    }).catch(function () { window.open(url, '_blank', 'noopener'); toast('Opened in your browser instead.'); });
+  }
+  function saveMessage(m) {
+    if (m.type === 'file' && m.file) return saveUrl(m.file.url, m.file.name);
+    var l = U.imagesOf(m), it = l[0]; saveUrl(it && it.image, (it && it.name) || 'photo.jpg');
+  }
+  A['download'] = function (t) { var m = st.messages.filter(function (x) { return x.id === t.dataset.id; })[0]; if (m) saveMessage(m); };
+  A['save-url'] = function (t) { saveUrl(t.dataset.u, t.dataset.n); };
   document.addEventListener('keydown', function (ev) {
     if (!vw) return;
     if (ev.key === 'ArrowLeft') { ev.preventDefault(); step(-1); }
