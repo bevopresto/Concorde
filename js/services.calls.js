@@ -119,7 +119,42 @@
   var HW = S.hardware = {};
   var gainNode = null, previewStream = null;
   function constraintsFor(mode) {
+    if (mode === 'strong') return { echoCancellation: true, noiseSuppression: false, autoGainControl: true };   // RNNoise does the cleaning instead of the browser
     return mode === 'studio' ? { echoCancellation: true, noiseSuppression: false, autoGainControl: false } : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  }
+  /* ---- Strong noise removal: RNNoise (open source, runs on your own computer; nothing is sent anywhere) ---- */
+  var rnLib = null, rnWasm = null;
+  function assetUrl(p) { return new URL(p, document.baseURI).href; }
+  function loadRnLib() {
+    if (rnLib) return rnLib;
+    rnLib = new Promise(function (res, rej) {
+      if (window.RnnoiseLib) return res(window.RnnoiseLib);
+      var el = document.createElement('script'); el.src = assetUrl('js/vendor/rnnoise/rnnoise-lib.js');
+      el.onload = function () { window.RnnoiseLib ? res(window.RnnoiseLib) : rej(new Error('rnnoise')); }; el.onerror = function () { rej(new Error('rnnoise')); };
+      document.head.appendChild(el);
+    }).then(function (L) {
+      rnWasm = L.loadRnnoise({ url: assetUrl('js/vendor/rnnoise/rnnoise.wasm'), simdUrl: assetUrl('js/vendor/rnnoise/rnnoise_simd.wasm') });
+      return rnWasm.then(function () { return L; });
+    }).catch(function (e) { rnLib = null; throw e; });
+    return rnLib;
+  }
+  var rnReady = new WeakSet();
+  /* RNNoise wants 48 kHz audio. Returns { node, ctx, own } where own means we made the audio context ourselves. */
+  function makeRnnoise(baseCtx) {
+    var own = false, ctx = baseCtx;
+    return loadRnLib().then(function (L) {
+      if (!ctx || ctx.sampleRate !== 48000 || ctx.state === 'closed') { ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 }); own = true; }
+      var ready = rnReady.has(ctx) ? Promise.resolve() : ctx.audioWorklet.addModule(assetUrl('js/vendor/rnnoise/worklet.js')).then(function () { rnReady.add(ctx); });
+      return Promise.all([ready, rnWasm]).then(function (r) { return { node: new L.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary: r[1] }), ctx: ctx, own: own }; });
+    });
+  }
+  var rnFailedNote = false;
+  function strongFailed() {
+    putPref('profileMode', 'voice');
+    if (C.ui && C.ui.store) C.ui.store.set('profileMode', 'voice');
+    if (!rnFailedNote) { rnFailedNote = true; toast('Strong noise removal isn’t available on this computer. Switched back to Voice isolation.'); }
+    var t = micTrack(); if (t && t.restartTrack) t.restartTrack(constraintsFor('voice')).catch(function () {});
+    if (C.ui && C.ui.setProfileMode) C.ui.setProfileMode('voice');
   }
   function gainFor() { return Math.max(0, (+pref('vol.inp', DEFAULT_IN)) / DEFAULT_IN); }
   function listDevices() {
@@ -181,27 +216,44 @@
     });
   };
   function micTrack() { var pub = room && room.localParticipant.getTrackPublication(LK.Track.Source.Microphone); return pub && pub.audioTrack ? pub.audioTrack : null; }
-  function gainProcessor() {
-    var ctx, src, dest;
+  var procOwnCtx = null;
+  function micProcessor() {
+    var ctx, src, dest, rn = null, own = false, strong = pref('profileMode', 'voice') === 'strong';
     return {
-      name: 'concorde-input-volume', kind: 'audio', processedTrack: undefined,
+      name: 'concorde-mic', kind: 'audio', processedTrack: undefined,
       init: function (o) {
-        ctx = o.audioContext || new (window.AudioContext || window.webkitAudioContext)();
-        src = ctx.createMediaStreamSource(new MediaStream([o.track])); gainNode = ctx.createGain(); gainNode.gain.value = gainFor();
-        dest = ctx.createMediaStreamDestination(); src.connect(gainNode); gainNode.connect(dest);
-        this.processedTrack = dest.stream.getAudioTracks()[0]; return Promise.resolve();
+        var me = this, base = o.audioContext || null;
+        var pre = strong ? makeRnnoise(base).catch(function () { strong = false; strongFailed(); return null; }) : Promise.resolve(null);
+        return pre.then(function (r) {
+          if (r) { rn = r.node; ctx = r.ctx; own = r.own; } else { ctx = base || new (window.AudioContext || window.webkitAudioContext)(); own = !base; }
+          if (own && ctx.state === 'suspended') ctx.resume().catch(function () {});
+          src = ctx.createMediaStreamSource(new MediaStream([o.track]));
+          gainNode = ctx.createGain(); gainNode.gain.value = gainFor();
+          dest = ctx.createMediaStreamDestination();
+          if (rn) { src.connect(rn); rn.connect(gainNode); } else src.connect(gainNode);
+          gainNode.connect(dest);
+          me.processedTrack = dest.stream.getAudioTracks()[0];
+        });
       },
       restart: function (o) { var me = this; return this.destroy().then(function () { return me.init(o); }); },
-      destroy: function () { try { if (src) src.disconnect(); if (gainNode) gainNode.disconnect(); } catch (e) { /* closed */ } gainNode = null; return Promise.resolve(); }
+      destroy: function () {
+        try { if (src) src.disconnect(); if (rn) { rn.disconnect(); rn.destroy(); } if (gainNode) gainNode.disconnect(); if (own && ctx) ctx.close(); } catch (e) { /* closed */ }
+        gainNode = null; rn = null; return Promise.resolve();
+      }
     };
   }
-  var gainOn = false;
+  var gainOn = false, gainStrong = false;
+  HW._test = { micProcessor: function () { return micProcessor(); }, makeRnnoise: makeRnnoise };
   function applyInputVolume() {
     var t = micTrack(); if (!t) return Promise.resolve();
-    if (gainNode) { gainNode.gain.value = gainFor(); return Promise.resolve(); }
-    if (gainOn || Math.abs(gainFor() - 1) < 0.01) return Promise.resolve();       // still at the normal level: leave the microphone untouched
-    gainOn = true;
-    return Promise.resolve().then(function () { return t.setProcessor(gainProcessor()); }).catch(function () { gainOn = false; });
+    var strong = pref('profileMode', 'voice') === 'strong', want = strong || Math.abs(gainFor() - 1) >= 0.01;
+    if (gainNode && gainOn && gainStrong === strong) { gainNode.gain.value = gainFor(); return Promise.resolve(); }
+    if (!want) {                                                                  // back to normal level and no RNNoise: leave the microphone untouched
+      if (!gainOn) return Promise.resolve();
+      gainOn = false; gainNode = null; return Promise.resolve().then(function () { return t.stopProcessor(); }).catch(function () {});
+    }
+    var wasOn = gainOn; gainOn = true; gainStrong = strong;
+    return Promise.resolve().then(function () { return wasOn ? t.stopProcessor() : null; }).then(function () { return t.setProcessor(micProcessor()); }).catch(function () { gainOn = false; });
   }
   HW.setInputVolume = function (v) { putPref('vol.inp', v); return applyInputVolume(); };
   /* One friend louder than the rest? Turn just them down. Percent, 0 to 100, remembered per person. */
@@ -240,13 +292,22 @@
   HW.setProfile = function (mode) {
     putPref('profileMode', mode);
     var t = micTrack(); if (!t || !t.restartTrack) return Promise.resolve();
-    return t.restartTrack(constraintsFor(mode)).catch(function () {});
+    return t.restartTrack(constraintsFor(mode)).catch(function () {}).then(function () { return applyInputVolume(); });
   };
   /* Live microphone level for the settings meter. Returns a function that stops it. */
   HW.meter = function (onLevel) {
     var md = navigator.mediaDevices; if (!md) return Promise.resolve({ hear: function () {}, stop: function () {} });
     var id = HW.chosen('mic'), audio = constraintsFor(pref('profileMode', 'voice')); if (id) audio.deviceId = { exact: id };
-    return md.getUserMedia({ audio: audio }).catch(function () { return md.getUserMedia({ audio: true }); }).then(function (st) {
+    var strongMode = pref('profileMode', 'voice') === 'strong';
+    return md.getUserMedia({ audio: audio }).catch(function () { return md.getUserMedia({ audio: true }); }).then(function (raw) {
+      if (!strongMode) return { st: raw, raw: raw, extra: null };
+      return makeRnnoise(null).then(function (r) {
+        var src = r.ctx.createMediaStreamSource(raw), dst = r.ctx.createMediaStreamDestination(); src.connect(r.node); r.node.connect(dst);
+        if (r.ctx.state === 'suspended') r.ctx.resume().catch(function () {});
+        return { st: dst.stream, raw: raw, extra: function () { try { src.disconnect(); r.node.disconnect(); r.node.destroy(); r.ctx.close(); } catch (e) { /* closed */ } } };
+      }).catch(function () { strongFailed(); return { st: raw, raw: raw, extra: null }; });
+    }).then(function (pack) {
+      var st = pack.st;
       var ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser(), buf = new Uint8Array(512);
       an.fftSize = 512; ctx.createMediaStreamSource(st).connect(an);
       var tm = setInterval(function () {
@@ -262,7 +323,7 @@
           var sink = HW.chosen('spk'); if (sink && ear.setSinkId) ear.setSinkId(sink).catch(function () {});
           ear.play().catch(function () {});
         },
-        stop: function () { if (ear) { ear.pause(); ear.srcObject = null; ear = null; } clearInterval(tm); st.getTracks().forEach(function (t) { t.stop(); }); try { ctx.close(); } catch (e) { /* closed */ } }
+        stop: function () { if (ear) { ear.pause(); ear.srcObject = null; ear = null; } clearInterval(tm); if (pack.extra) pack.extra(); pack.raw.getTracks().forEach(function (t) { t.stop(); }); try { ctx.close(); } catch (e) { /* closed */ } }
       };
     }).catch(function () { toast('Couldn’t reach your microphone. Check that Concorde is allowed to use it.'); return { hear: function () {}, stop: function () {} }; });
   };

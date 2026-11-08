@@ -630,6 +630,11 @@
     opts = opts || {};
     if (!currentConv()) return;
     var list = state.messages, c = currentConv(), isGroup = c.type === 'group', html = '';
+    if (state.loadError === c.id) {
+      var offline = S.getConnection && !S.getConnection().online;
+      $('#messages').innerHTML = '<div class="load-error" role="alert">' + ico('wifi-off') + '<b>Couldn’t load messages</b><span>' + (offline ? 'You look to be offline. They’ll load when you’re back.' : 'Something went wrong reaching the server. Your chat is safe.') + '</span><button class="btn-pill" data-action="retry-load">' + ico('refresh-cw', 'sm') + 'Try again</button></div>';
+      return;
+    }
     var lastDay = null;
     list.forEach(function (m, i) {
       var dd = m.d || 0;
@@ -818,7 +823,7 @@
     if (!pop) { if (!sb.anchor) return; pop = document.createElement('div'); pop.className = 'popover react-pop sb-pop'; pop.dataset.popover = 'react'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'Soundboard'); overlay.appendChild(pop); }
     var h = '<h4 class="emoji-h">Soundboard · everyone in the call hears it</h4>';
     h += list.length ? '<div class="sb-grid">' + list.map(function (c) { return '<span class="sb-item"><button class="sb-clip" data-action="sb-play" data-id="' + c.id + '" aria-label="Play ' + esc(c.name) + '"><span class="sb-em">' + esc(c.emoji) + '</span><span class="sb-nm">' + esc(c.name) + '</span></button>' + (owner && sb.manage ? '<button class="cx" data-action="sb-remove" data-id="' + c.id + '" aria-label="Remove ' + esc(c.name) + '">×</button>' : '') + '</span>'; }).join('') + '</div>'
-      : '<p class="gif-empty">' + (owner ? 'No sounds yet. Add your first one below.' : 'No sounds yet. The owner can add some.') + '</p>';
+      : '<p class="gif-empty">' + (owner ? 'No sounds yet. Add one below, or manage them all in Settings → Library.' : 'No sounds yet. The owner can add some.') + '</p>';
     if (owner) {
       var d = sb.draft;
       h += d ? '<div class="emoji-add"><input id="sb-emoji" type="text" maxlength="4" value="' + esc(d.emoji) + '" aria-label="Emoji" style="width:44px;text-align:center"><input id="sb-name" type="text" maxlength="30" value="' + esc(d.name) + '" aria-label="Sound name" autocomplete="off"><button class="btn sm" data-action="sb-save">Add</button><button class="btn sm ghost" data-action="sb-cancel">Cancel</button>' + (d.err ? '<span class="err">' + esc(d.err) + '</span>' : '') + '</div>'
@@ -933,7 +938,7 @@
   var TABS = [['profile', 'user-round', 'My profile'], ['voice', 'mic', 'Voice & Video'], ['notify', 'bell', 'Notifications'], ['look', 'palette', 'Appearance'], ['tools', 'wrench', 'Prototype tools']];
   function tabList() {
     var t = TABS.filter(function (x) { return !(x[0] === 'tools' && C.config && C.config.backend === 'live'); });
-    if (S.isOwner()) t.splice(4, 0, ['invite', 'user-plus', 'Invite a friend']);
+    if (S.isOwner()) { t.splice(4, 0, ['library', 'sparkles', 'Library']); t.splice(5, 0, ['invite', 'user-plus', 'Invite a friend']); }
     return t;
   }
   function selectOpen() { return !!document.querySelector('.select-list:not([hidden])'); }
@@ -972,9 +977,63 @@
       bars.forEach(function (b, i) { b.classList.toggle('on', i < n); });
     }, 110);
   }
+  /* ---------- Settings → Library: manage custom emoji, GIFs and sounds in one place (owner only) ---------- */
+  var lb = { draft: null, confirm: '' };
+  function lbRemoveBtn(kind, id, label) {
+    var key = kind + ':' + id, sure = lb.confirm === key;
+    return '<button class="lb-x' + (sure ? ' sure' : '') + '" data-action="lb-remove" data-kind="' + kind + '" data-id="' + esc(id) + '" aria-label="Remove ' + esc(label) + '">' + (sure ? 'Remove?' : '×') + '</button>';
+  }
+  function lbDraftHTML(kind) {
+    var d = lb.draft; if (!d || d.kind !== kind) return '';
+    var prev = kind === 'sound' ? '<span class="lb-snd-ico">🔊</span>' : '<img class="lb-prev" src="' + esc(d.url) + '" alt="">';
+    return '<div class="lb-draft">' + prev + (kind === 'sound' ? '<input id="lb-emoji" type="text" maxlength="4" value="' + esc(d.emoji || '🔊') + '" aria-label="Emoji" style="width:46px;text-align:center">' : '') +
+      '<input id="lb-name" type="text" maxlength="' + (kind === 'emoji' ? 24 : kind === 'sound' ? 30 : 40) + '" value="' + esc(d.name) + '" aria-label="Name" autocomplete="off">' +
+      '<button class="btn sm" data-action="lb-save">Add</button><button class="btn sm ghost" data-action="lb-cancel">Cancel</button>' + (d.err ? '<span class="err">' + esc(d.err) + '</span>' : '') + '</div>';
+  }
+  function libraryHTML() {
+    var em = S.customEmoji ? S.customEmoji() : [], gf = S.libraryGifs ? S.libraryGifs() : [], sn = S.sounds ? S.sounds() : [];
+    function add(kind, label) { return lb.draft && lb.draft.kind === kind ? '' : '<button class="btn sm" data-action="lb-add" data-kind="' + kind + '">+ ' + label + '</button>'; }
+    return '<h3 class="lb-h">Library</h3><p class="lb-sub">Emoji, GIFs and sounds that everyone in Concorde can use. Only you can add or remove them.</p>' +
+      '<section class="lb-sec"><div class="lb-head"><h4>Emoji <span class="count">' + em.length + '</span></h4>' + add('emoji', 'Add emoji') + '</div>' + lbDraftHTML('emoji') +
+        (em.length ? '<div class="lb-grid">' + em.map(function (e) { return '<div class="lb-tile"><img src="' + esc(e.url) + '" alt=""><span title=":' + e.name + ':">:' + e.name + ':</span>' + lbRemoveBtn('emoji', e.name, ':' + e.name + ':') + '</div>'; }).join('') + '</div>' : '<p class="lb-empty">No custom emoji yet. Pictures are shrunk to 128 px.</p>') + '</section>' +
+      '<section class="lb-sec"><div class="lb-head"><h4>GIFs <span class="count">' + gf.length + '</span></h4>' + add('gif', 'Add GIF') + '</div>' + lbDraftHTML('gif') +
+        (gf.length ? '<div class="lb-grid gifs">' + gf.map(function (g) { return '<div class="lb-tile"><img src="' + esc(g.url) + '" alt=""><span title="' + esc(g.name) + '">' + esc(g.name) + '</span>' + lbRemoveBtn('gif', g.id, g.name) + '</div>'; }).join('') + '</div>' : '<p class="lb-empty">No GIFs yet. GIF, WebP, PNG or JPEG up to 3 MB.</p>') + '</section>' +
+      '<section class="lb-sec"><div class="lb-head"><h4>Sounds <span class="count">' + sn.length + '</span></h4>' + add('sound', 'Add sound') + '</div>' + lbDraftHTML('sound') +
+        (sn.length ? '<ul class="lb-sounds">' + sn.map(function (c) { return '<li><button class="lb-play" data-action="lb-play" data-id="' + c.id + '" aria-label="Play ' + esc(c.name) + '">' + ico('play', 'sm') + '</button><span class="lb-snd-ico">' + esc(c.emoji) + '</span><span class="lb-snd-nm">' + esc(c.name) + '</span>' + lbRemoveBtn('sound', c.id, c.name) + '</li>'; }).join('') + '</ul>' : '<p class="lb-empty">No sounds yet. Audio up to 600 KB (about 10 seconds). They play on the soundboard during calls.</p>') + '</section>';
+  }
+  function paintLibrary(focusName) {
+    var pane = $('#set-pane'); if (!pane || state.setTab !== 'library') return;
+    var top = pane.scrollTop; pane.innerHTML = libraryHTML(); pane.scrollTop = top;
+    if (focusName) { var n = $('#lb-name', pane); if (n) { n.focus(); n.select(); } }
+  }
+  function lbAdd(kind) {
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = kind === 'sound' ? 'audio/*' : kind === 'gif' ? 'image/gif,image/webp,image/png,image/jpeg' : 'image/png,image/jpeg,image/gif,image/webp';
+    inp.onchange = function () {
+      var f = inp.files && inp.files[0]; if (!f) return;
+      var base = (f.name || kind).replace(/\.[^.]+$/, '');
+      var d = { kind: kind, file: f, url: kind === 'sound' ? '' : URL.createObjectURL(f), err: '', w: 200, h: 200, emoji: '🔊',
+        name: kind === 'emoji' ? (base.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'emoji') : base.replace(/[_-]+/g, ' ').trim().slice(0, kind === 'sound' ? 30 : 40) || kind };
+      lb.draft = d; lb.confirm = '';
+      if (kind === 'gif') { var im = new Image(); im.onload = function () { d.w = im.naturalWidth || 200; d.h = im.naturalHeight || 200; }; im.src = d.url; }
+      if (kind === 'sound') { try { var a = new Audio(URL.createObjectURL(f)); a.onloadedmetadata = function () { if (a.duration > 12) { d.err = 'That’s ' + Math.round(a.duration) + ' seconds. Keep it to about 10.'; paintLibrary(); } }; } catch (e) {} }
+      paintLibrary(true);
+    };
+    inp.click();
+  }
+  function lbSave() {
+    var d = lb.draft; if (!d) return; var n = $('#lb-name'), em = $('#lb-emoji'); if (n) d.name = n.value; if (em) d.emoji = em.value || '🔊';
+    var job = d.kind === 'emoji' ? S.addCustomEmoji(d.name, d.file) : d.kind === 'gif' ? S.addLibraryGif(d.name, d.file, d.w, d.h) : S.addSound(d.name, d.emoji, d.file);
+    job.then(function (r) {
+      if (!r.ok) { d.err = r.error || 'Couldn’t add it'; paintLibrary(true); return; }
+      lb.draft = null; toast('Added'); paintLibrary();
+    });
+  }
+  S.on('emoji', function () { paintLibrary(); });
+  S.on('library', function () { paintLibrary(); });
   function paneHTML(tab) {
     var me = S.getCurrentUser();
     if (tab === 'invite' && S.isOwner() && C.ui.inviteHTML) return C.ui.inviteHTML();
+    if (tab === 'library' && S.isOwner()) return libraryHTML();
     if (tab === 'profile') {
       return '<h2>My profile</h2><div class="set-section"><div class="avatar-row">' + avatar(me, 84) +
         '<div class="avatar-side"><button class="btn-pill quiet" data-action="change-avatar">' + ico('image', 'sm') + 'Change avatar</button>' +
@@ -996,7 +1055,7 @@
         '<div class="meter" id="meter" aria-hidden="true">' + new Array(21).join('<i></i>') + '</div></div>' +
         (liveHW() ? switchRow('Hear myself', 'Plays your microphone through your speakers while you test. Use headphones, or it will echo.', 'toggle-hear', !!state.hearSelf) : '') +
         '<div class="set-section"><h3>Input profile</h3><div class="radio-cards" role="radiogroup" aria-label="Input profile">' +
-        [['voice', 'Voice isolation', 'Softens background noise. Good for most rooms.'], ['studio', 'Studio', 'Keeps your voice natural. Good with a quality microphone.']].map(function (r) {
+        [['voice', 'Voice isolation', 'Softens background noise. Good for most rooms.'], ['strong', 'Strong noise removal', 'Cuts keyboards, fans and room hiss hard. Uses a little more computer power.'], ['studio', 'Studio', 'Keeps your voice natural. Good with a quality microphone.']].map(function (r) {
           return '<button type="button" class="radio-card" role="radio" aria-checked="' + (state.profileMode === r[0]) + '" data-action="profile-mode" data-mode="' + r[0] + '"><b>' + r[1] + '</b><span>' + r[2] + '</span></button>';
         }).join('') + '</div></div>' +
         '<div class="set-section">' + switchRow('Push to talk', 'Hold a key to speak. Your microphone stays closed otherwise.', 'toggle-ptt', state.ptt) +
@@ -1179,9 +1238,14 @@
   function openConversation(id) {
     if (!id) { state.convId = null; state.messages = []; renderList(); return Promise.resolve(); }
     state.draft = null; state.convId = id; state.replyTo = null; state.popover = null; state.mention = null; S.setViewing(id);
-    S.markRead(id);
+    S.markRead(id); state.loadError = null;
     return S.loadHistory(id).then(function (list) {
+      if (state.convId !== id) return;
       state.messages = list;
+      renderList(); renderHead(); renderCall(); renderMessages({ initial: true }); renderReply(); renderDraft(); renderDetails(); renderPopover();
+    }).catch(function () {
+      if (state.convId !== id) return;
+      state.messages = []; state.loadError = id;
       renderList(); renderHead(); renderCall(); renderMessages({ initial: true }); renderReply(); renderDraft(); renderDetails(); renderPopover();
     });
   }
@@ -1505,7 +1569,16 @@
       case 'lib-cancel': gifs.draft = null; paintLib(); break;
       case 'lib-manage': gifs.manage = !gifs.manage; paintLib(); break;
       case 'lib-remove': S.removeLibraryGif(t.dataset.id).then(paintLib); break;
+      case 'retry-load': if (state.convId) { var btn0 = t; btn0.disabled = true; openConversation(state.convId); } break;
       case 'sb-open': toggleSoundboard(t); break;
+      case 'lb-add': lbAdd(t.dataset.kind); break;
+      case 'lb-save': lbSave(); break;
+      case 'lb-cancel': lb.draft = null; paintLibrary(); break;
+      case 'lb-play': var lc = clipById(t.dataset.id); if (lc) playUrl(lc.url); break;
+      case 'lb-remove':
+        var key = t.dataset.kind + ':' + t.dataset.id;
+        if (lb.confirm !== key) { lb.confirm = key; paintLibrary(); clearTimeout(lb.t); lb.t = setTimeout(function () { lb.confirm = ''; paintLibrary(); }, 3500); break; }
+        lb.confirm = ''; (t.dataset.kind === 'emoji' ? S.removeCustomEmoji(t.dataset.id) : t.dataset.kind === 'gif' ? S.removeLibraryGif(t.dataset.id) : S.removeSound(t.dataset.id)).then(function () { paintLibrary(); }); break;
       case 'sb-play': playClip(t.dataset.id); break;
       case 'sb-add': sbAddFlow(); break;
       case 'sb-save': sbSave(); break;
@@ -1569,7 +1642,7 @@
       case 'set-tab': state.setTab = t.dataset.tab; state.pttListening = false; paintPane(); break;
       case 'mic-test': if (state.micTest) stopMicTest(); else startMicTest(); $('#mic-test-label').textContent = state.micTest ? 'Stop test' : 'Test microphone'; break;
       case 'toggle-hear': state.hearSelf = !state.hearSelf; t.setAttribute('aria-checked', String(state.hearSelf)); if (meterTimer && meterTimer.hear) meterTimer.hear(state.hearSelf); break;
-      case 'profile-mode': state.profileMode = t.dataset.mode; store.set('profileMode', state.profileMode); if (liveHW()) liveHW().setProfile(state.profileMode); document.querySelectorAll('.radio-card').forEach(function (b) { b.setAttribute('aria-checked', String(b.dataset.mode === state.profileMode)); }); break;
+      case 'profile-mode': state.profileMode = t.dataset.mode; store.set('profileMode', state.profileMode); if (liveHW()) liveHW().setProfile(state.profileMode); if (state.micTest) { stopMicTest(); startMicTest(); } document.querySelectorAll('.radio-card').forEach(function (b) { b.setAttribute('aria-checked', String(b.dataset.mode === state.profileMode)); }); break;
       case 'toggle-ptt': { state.ptt = !state.ptt; store.set('ptt', state.ptt ? 'on' : 'off'); state.pttListening = false; paintPane(); var pcl = S.getCall(state.convId); if (pcl && pcl.joined) S.setMuted(state.ptt); break; }
       case 'ptt-key': state.pttListening = true; $('#ptt-label').textContent = pttLabel(); t.classList.add('listening'); t.focus(); break;
       case 'toggle-mirror':
@@ -1673,14 +1746,16 @@
   });
 
 
-  document.addEventListener('keydown', function (e) { var id = e.target && e.target.id; if (e.key === 'Enter' && id) { if (id === 'emoji-name') { e.preventDefault(); saveEmojiDraft(); } else if (id === 'lib-name') { e.preventDefault(); libSave(); } else if (id === 'sb-name' || id === 'sb-emoji') { e.preventDefault(); sbSave(); } } });
+  document.addEventListener('keydown', function (e) { var id = e.target && e.target.id; if (e.key === 'Enter' && id) { if (id === 'emoji-name') { e.preventDefault(); saveEmojiDraft(); } else if (id === 'lib-name') { e.preventDefault(); libSave(); } else if (id === 'sb-name' || id === 'sb-emoji') { e.preventDefault(); sbSave(); } else if (id === 'lb-name' || id === 'lb-emoji') { e.preventDefault(); lbSave(); } } });
 
   /* ---------- Live events ---------- */
   S.on('reacted', function (e) { var fx = C.fx && C.fx.forEmoji(e.emoji); if (fx && (!e.conversationId || e.conversationId === state.convId)) C.fx.play(fx); });
   S.on('emoji', function () { if (state.popover && state.popover.type === 'emoji') renderPopover(); if (state.convId) renderMessages({ scroll: false }); });
+  S.on('connection', function (e) { if (e && e.online && !e.reconnecting && state.loadError && state.convId === state.loadError) openConversation(state.convId); });
   S.on('message', function (e) {
     if (e.conversationId === state.convId) {
       S.loadHistory(e.conversationId).then(function (list) {
+        if (state.loadError === e.conversationId) state.loadError = null;
         state.messages = list;
         var box = $('#messages'), nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140;
         renderMessages({ scroll: nearBottom || !e.updated });
@@ -1713,6 +1788,7 @@
   /* ---------- Hand a few helpers to extras.js (menus, status, Tower, screen-share picker) ---------- */
   C.actions = C.actions || {};
   C.ui = C.ui || {};
+  C.ui.setProfileMode = function (m) { state.profileMode = m; document.querySelectorAll('.radio-card').forEach(function (b) { b.setAttribute('aria-checked', String(b.dataset.mode === m)); }); };
   Object.assign(C.ui, {
     state: state, store: store, overlay: overlay, esc: esc, ico: ico, avatar: avatar, person: person, entity: entity, initial: initial, statusText: statusText,
     chime: chime, toast: toast, scene: scene, imagesOf: imagesOf, quiet: quiet, richText: richText, snippet: snippet, camArt: camArt, screenArt: screenArt,
