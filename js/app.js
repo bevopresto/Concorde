@@ -973,7 +973,7 @@
           return '<button type="button" class="ring-sw" role="radio" aria-checked="' + on + '" aria-label="' + r[2] + ' ring" title="' + r[2] + '" data-action="ring-pick" data-i="' + i + '" style="--c1:' + r[0] + ';--c2:' + r[1] + '"></button>';
         }).join('') + '</div></div></div>' +
         '<label class="name-label" for="set-name">Display name</label><label class="field" for="set-name"><input id="set-name" type="text" value="' + esc(me.name) + '"></label>' +
-        '<label class="name-label" for="set-note">Status message</label><div class="note-row"><label class="field" for="set-note"><input id="set-note" type="text" maxlength="60" placeholder="What are you up to? Words or an emoji" autocomplete="off" value="' + esc(me.note || '') + '"></label><button type="button" class="btn-round" id="note-emoji" aria-label="Pick an emoji" aria-expanded="false">\u263A</button></div><div class="note-emojis" id="note-emojis" hidden></div>' +
+        '<label class="name-label" for="set-note">Status message</label><div class="note-row"><label class="field" for="set-note"><input id="set-note" type="text" maxlength="60" placeholder="What are you up to? Words or an emoji" autocomplete="off" value="' + esc(me.note || '') + '"></label><button type="button" class="btn-round" id="note-emoji" aria-label="Pick an emoji" aria-expanded="false">' + ico('smile') + '</button></div><div class="note-emojis" id="note-emojis" hidden></div>' +
         '<input id="file-avatar" type="file" accept="image/*" hidden></div>' +
         '<div class="set-section"><h3>Status</h3><p class="pane-note">Change it any time by clicking your card at the bottom of the chat list.</p></div>';
     }
@@ -1036,8 +1036,7 @@
     });
     var ne = $('#note-emoji', pane), nl = $('#note-emojis', pane);
     if (ne && note && nl) {
-      var STATUS_EMOJI = ['\uD83D\uDE34', '\uD83C\uDFAE', '\uD83C\uDFA7', '\uD83D\uDCBB', '\uD83D\uDCDA', '\uD83C\uDF55', '\u2615', '\uD83C\uDF7A', '\uD83C\uDFC3', '\uD83D\uDE97', '\u2708\uFE0F', '\uD83C\uDFD6\uFE0F', '\uD83C\uDF27\uFE0F', '\uD83E\uDD12', '\uD83E\uDD2F', '\uD83D\uDE0E', '\uD83D\uDE4F', '\uD83D\uDD25', '\u2728', '\uD83C\uDF89', '\u2764\uFE0F', '\uD83D\uDC9C', '\uD83D\uDE02', '\uD83E\uDD14', '\uD83D\uDC40', '\uD83D\uDCA4', '\uD83D\uDEAB', '\uD83D\uDCDE', '\uD83C\uDFB5', '\uD83C\uDF1F'];
-      nl.innerHTML = STATUS_EMOJI.map(function (e) { return '<button type="button" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('');
+      nl.innerHTML = emojiDrawerHTML();
       ne.addEventListener('click', function () { nl.hidden = !nl.hidden; ne.setAttribute('aria-expanded', String(!nl.hidden)); });
       nl.addEventListener('click', function (ev) {
         var b = ev.target.closest('button[data-e]'); if (!b) return;
@@ -1048,7 +1047,8 @@
     var fa = $('#file-avatar', pane);
     if (fa) fa.addEventListener('change', function (ev) {
       var f = ev.target.files[0]; if (!f) return;
-      var r = new FileReader(); r.onload = function () { openCrop(r.result); }; r.readAsDataURL(f); ev.target.value = '';
+      ev.target.value = '';
+      pickPicture(f, function (data) { S.updateProfile({ avatar: data }).then(function () { refreshSettingsAvatar(); refreshAvatarEverywhere(); }); }, function (src) { openCrop(src); });
     });
   }
   function renderSettings() {
@@ -1063,6 +1063,41 @@
       '<div class="set-main"><button class="btn-round sm set-x" data-action="settings-close-btn" aria-label="Close settings">' + ico('x', 'sm') + '</button><div class="set-pane" id="set-pane"></div></div></div>';
     overlay.appendChild(el);
     paintPane();
+  }
+
+  /* Animated pictures (GIF, or WebP that moves) skip the cropper so they keep moving. 2 MB at most. */
+  function pickPicture(f, onData, onCrop) {
+    var r = new FileReader();
+    function crop() { r.onload = function () { onCrop(r.result); }; r.readAsDataURL(f); }
+    if (f.type === 'image/gif') return animated(true);
+    if (f.type === 'image/webp') { var h = new FileReader(); h.onload = function () { animated(/ANIM/.test(String(h.result))); }; return h.readAsText(f.slice(0, 256)); }
+    return crop();
+    function animated(yes) {
+      if (!yes) return crop();
+      if (f.size > 2000000) { toast('Animated pictures need to be under 2 MB'); return; }
+      r.onload = function () { onData(r.result); }; r.readAsDataURL(f);
+    }
+  }
+  /* A small emoji drawer for any text box (status, group name). Opens under the box. */
+  function attachEmojiDrawer(input, host) {
+    var field = input.closest('label.field'); if (!field || field.parentNode.classList.contains('note-row')) return;
+    var row = document.createElement('div'); row.className = 'note-row'; field.parentNode.insertBefore(row, field); row.appendChild(field);
+    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn-round'; btn.setAttribute('aria-label', 'Pick an emoji'); btn.setAttribute('aria-expanded', 'false'); btn.innerHTML = ico('smile');
+    row.appendChild(btn);
+    var drawer = document.createElement('div'); drawer.className = 'note-emojis'; drawer.hidden = true; row.parentNode.insertBefore(drawer, row.nextSibling);
+    drawer.innerHTML = emojiDrawerHTML();
+    btn.addEventListener('click', function () { drawer.hidden = !drawer.hidden; btn.setAttribute('aria-expanded', String(!drawer.hidden)); if (input.selectionStart === 0 && input.selectionEnd === input.value.length) { try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) {} } });
+    drawer.addEventListener('click', function (ev) {
+      var b = ev.target.closest('button[data-e]'); if (!b) return;
+      var a = input.selectionStart == null ? input.value.length : input.selectionStart, z = input.selectionEnd == null ? a : input.selectionEnd;
+      var next = input.value.slice(0, a) + b.dataset.e + input.value.slice(z);
+      if (input.maxLength > 0 && next.length > input.maxLength) { toast('That’s the most that fits here'); return; }
+      input.value = next; var pos = a + b.dataset.e.length; input.focus(); try { input.setSelectionRange(pos, pos); } catch (e) {}
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  function emojiDrawerHTML() {
+    return EMOJI_SETS.map(function (g) { return '<h4 class="emoji-h">' + g[0] + '</h4>' + g[1].map(function (e) { return '<button type="button" data-e="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join(''); }).join('');
   }
 
   /* ---------- Avatar ring colours and photo cropper ---------- */
@@ -1210,9 +1245,8 @@
   function bindGroupFile(el) {
     el.querySelector('#file-group').addEventListener('change', function (ev) {
       var f = ev.target.files[0]; if (!f) return;
-      var r = new FileReader(), dlg = activeDlg();
-      r.onload = function () { openCrop(r.result, function (data) { dlg.draft.avatar = data; paintLook(dlg.el, dlg.draft); }, dlg.draft); };
-      r.readAsDataURL(f); ev.target.value = '';
+      var dlg = activeDlg(); ev.target.value = '';
+      pickPicture(f, function (data) { dlg.draft.avatar = data; paintLook(dlg.el, dlg.draft); }, function (src) { openCrop(src, function (data) { dlg.draft.avatar = data; paintLook(dlg.el, dlg.draft); }, dlg.draft); });
     });
   }
   function openEdit(id) {
@@ -1232,7 +1266,7 @@
     var input = el.querySelector('#edit-name'); input.value = c.name;
     input.addEventListener('input', function () { editDlg.draft.name = input.value; var a = el.querySelector('.look-avatar .avatar'); if (a && !editDlg.draft.avatar) a.firstChild.textContent = groupLetter(input.value.trim() || 'Group'); });
     input.addEventListener('keydown', function (e) { if (e.key === 'Enter') saveEdit(); });
-    bindGroupFile(el); paintLook(el, editDlg.draft); input.focus(); input.select();
+    bindGroupFile(el); paintLook(el, editDlg.draft); attachEmojiDrawer(input); input.focus(); input.select();
   }
   function closeEdit() { if (editDlg) { editDlg.el.remove(); editDlg = null; } }
   function saveEdit() {
@@ -1276,6 +1310,7 @@
       paintNew(true);
     });
     el.querySelector('#new-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') createNew(); });
+    attachEmojiDrawer(el.querySelector('#new-name'));
   }
   function paintNewList() {
     var q = newDlg.query, list = friends().filter(function (p) { return !q || p.name.toLowerCase().indexOf(q) !== -1; });

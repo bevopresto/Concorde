@@ -125,6 +125,7 @@
     if (p.file && p.file.path) out.push(p.file.path);
     return out;
   }
+  function picExt(b) { return b.type === 'image/gif' ? '.gif' : b.type === 'image/webp' ? '.webp' : b.type === 'image/jpeg' ? '.jpg' : '.png'; }
   function uploadTo(bucket, path, blob) {
     return sb.storage.from(bucket).upload(path, blob, { contentType: blob.type || 'application/octet-stream', upsert: false }).then(function (r) { if (r.error) throw r.error; });
   }
@@ -514,7 +515,7 @@
     if ('avatar' in patch) {
       if (patch.avatar) {
         work = fetch(patch.avatar).then(function (r) { return r.blob(); }).then(function (b) {
-          var path = myId + '/avatar-' + Date.now() + '.png';
+          var path = myId + '/avatar-' + Date.now() + picExt(b);
           return uploadTo('avatars', path, b).then(function () { upd.avatar_path = path; });
         });
       } else upd.avatar_path = null;
@@ -589,7 +590,7 @@
       if (r.error) throw r.error;
       var id = r.data;
       var pic = (ids.length > 1 && look && look.avatar) ? fetch(look.avatar).then(function (x) { return x.blob(); }).then(function (b) {
-        var path = myId + '/group-' + id + '-' + Date.now() + '.png';
+        var path = myId + '/group-' + id + '-' + Date.now() + picExt(b);
         return uploadTo('avatars', path, b).then(function () { return sb.from('conversations').update({ avatar_path: path }).eq('id', id); });
       }).catch(function () {}) : Promise.resolve();
       return pic.then(loadConversations).then(function () { return { id: id, created: !existing }; });
@@ -603,7 +604,7 @@
     if (patch.c1) { upd.c1 = patch.c1; upd.c2 = patch.c2; }
     if ('avatar' in patch) {
       if (patch.avatar && patch.avatar !== c.avatar) work = fetch(patch.avatar).then(function (r) { return r.blob(); }).then(function (b) {
-        var path = myId + '/group-' + id + '-' + Date.now() + '.png'; return uploadTo('avatars', path, b).then(function () { upd.avatar_path = path; });
+        var path = myId + '/group-' + id + '-' + Date.now() + picExt(b); return uploadTo('avatars', path, b).then(function () { upd.avatar_path = path; });
       }); else if (!patch.avatar) upd.avatar_path = null;
     }
     if (look) notes.push([who + ' changed the group picture', 'image']);

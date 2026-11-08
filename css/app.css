@@ -1263,3 +1263,10 @@ button.row-item:hover { box-shadow: var(--raise-1); }
 .popover.gifs .gif-grid { height: auto; min-height: 120px; grid-auto-rows: auto; }
 .popover.gifs .gif-col { gap: 0; }
 .popover.sb-pop { max-height: 55vh; }
+
+/* ---- 0.20.1 ---- */
+.note-emojis { max-height: 220px; overflow-y: auto; scrollbar-width: thin; }
+.note-emojis .emoji-h { grid-column: 1 / -1; margin: 4px 2px 0; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .6; }
+.note-row .btn-round svg { width: 18px; height: 18px; }
+a.row-item, button.row-item { transition: background-color .15s ease; }
+a.row-item:hover, button.row-item:hover, a.row-item:focus-visible, button.row-item:focus-visible { box-shadow: none; background: color-mix(in srgb, var(--accent-a) 9%, transparent); }
