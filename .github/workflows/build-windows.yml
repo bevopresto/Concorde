@@ -21,6 +21,15 @@ jobs:
       - name: Install
         working-directory: desktop
         run: npm install
+      - name: Remember downloaded build tools
+        id: tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~\AppData\Local\electron-builder\Cache
+            ~\AppData\Local\electron\Cache
+          key: build-tools-${{ github.run_id }}
+          restore-keys: build-tools-
       - name: Build the installer
         working-directory: desktop
         shell: pwsh
@@ -36,6 +45,14 @@ jobs:
             Start-Sleep -Seconds (20 * $i)
           }
           if (-not $ok) { exit 1 }
+      - name: Keep downloaded build tools for next time
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~\AppData\Local\electron-builder\Cache
+            ~\AppData\Local\electron\Cache
+          key: build-tools-${{ github.run_id }}
       - name: Publish it as a release
         shell: pwsh
         env:
