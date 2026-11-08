@@ -17,7 +17,7 @@
   });
 
   /* ---------------------------------------------------------------- events */
-  var bus = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [] };
+  var bus = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [], poked: [] };
   var quiet = false;                                  // no events while restoring a saved sign-in (the screens are not drawn yet)
   function emit(type, payload) { if (quiet) return; (bus[type] || []).slice().forEach(function (fn) { try { fn(payload); } catch (e) { console.error(e); } }); }
   S.on = function (type, fn) { if (bus[type]) bus[type].push(fn); };
@@ -278,6 +278,7 @@
         if (fresh) emit('joined', { person: D.people[pid(p.new.id)] });
       } else if (p.eventType === 'DELETE' && p.old && p.old.id && D.people[p.old.id]) { delete D.people[p.old.id]; loadConversations(); }
     });
+    on('pokes', 'INSERT', function (p) { if (p.new && p.new.to_id === myId && D.people[pid(p.new.from_id)]) emit('poked', { from: pid(p.new.from_id) }); });
     ['ideas', 'idea_plus', 'idea_comments'].forEach(function (t) { on(t, '*', function () { clearTimeout(subscribe._ti); subscribe._ti = setTimeout(function () { loadIdeas(true); }, 350); }); });
     hooks.listen.forEach(function (fn) { fn(db, on); });
     var wasDown = false;
@@ -536,6 +537,10 @@
     delete msgs[id]; delete loaded[id]; emit('conversations');
   }
   /* Hide a one-to-one chat from your own list. It returns when either of you writes again. */
+  /* A poke: resolves true when sent, 'slow' if sent too soon after the last one. */
+  S.poke = function (personId) {
+    return sb.rpc('poke', { p_to: personId }).then(function (r) { return r.error ? false : (r.data ? true : 'slow'); }).catch(function () { return false; });
+  };
   S.hideChat = function (id) {
     var c = conv(id); if (!c || c.type !== 'direct') return Promise.resolve(false);
     return sb.rpc('hide_chat', { p_conv: id }).then(function (r) { if (r.error || !r.data) return false; dropConv(id); return true; }).catch(function () { return false; });
@@ -572,6 +577,12 @@
       if (m.type === 'image') (m.images && m.images.length ? m.images : (m.image ? [{ image: m.image, name: m.name }] : [])).forEach(function (i) { if (i.image) out.media.push(i); });
       else if (m.type === 'file' && m.file) out.files.push({ name: m.file.name, meta: m.file.size + (who ? ' · ' + who : '') });
       else if (m.type === 'link' && m.link) out.links.push({ name: m.link.title, meta: m.link.domain });
+      /* plain web addresses typed into a normal message count as links too */
+      if (m.type === 'text' && m.text) (m.text.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || []).forEach(function (u) {
+        u = u.replace(/[.,!?;:)\]]+$/, ''); var href = /^www\./i.test(u) ? 'https://' + u : u, host = '';
+        try { host = new URL(href).hostname.replace(/^www\./, ''); } catch (e) { return; }
+        out.links.push({ name: u.replace(/^https?:\/\/(www\.)?/i, '').slice(0, 60), meta: host + (who ? ' · ' + who : ''), url: href });
+      });
     });
     return out;
   };

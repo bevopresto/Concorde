@@ -1194,3 +1194,20 @@ body.framed .mention-banner, body.framed .ring-box { top: 56px; }
 .tcard.done { background: linear-gradient(135deg, rgb(63 191 143 / .20), rgb(63 191 143 / .08)); box-shadow: var(--raise-1), inset 0 0 0 1.5px rgb(63 191 143 / .55); }
 .tcard.done .tstat.done { background: rgb(63 191 143 / .22); color: #1F8A62; box-shadow: none; }
 :root[data-theme='dark'] .tcard.done .tstat.done { color: #6FE0B2; }
+
+/* bigger emoji picker */
+.popover.emoji { width: 340px; max-height: 340px; overflow-y: auto; scrollbar-width: thin; grid-template-columns: repeat(8, 1fr); }
+.popover.emoji .emoji-h { grid-column: 1 / -1; margin: 8px 4px 2px; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.popover.emoji .emoji-h:first-child { margin-top: 2px; }
+a.row-item { color: inherit; text-decoration: none; }
+a.row-item:hover { box-shadow: var(--raise-1); }
+
+/* layering: the message you point at sits above its neighbours, and reaction names open below the chip */
+.msg { position: relative; }
+.msg:hover, .msg:focus-within { z-index: 6; }
+.react[data-who]::after { bottom: auto; top: calc(100% + 8px); }
+.popover.react-pop { flex-wrap: wrap; width: 232px; justify-content: center; border-radius: 24px; }
+
+/* poke: the whole window gives a little shake */
+@keyframes poke-shake { 0%, 100% { transform: none; } 15% { transform: translateX(-9px) rotate(-.4deg); } 30% { transform: translateX(8px) rotate(.4deg); } 45% { transform: translateX(-6px); } 60% { transform: translateX(5px); } 80% { transform: translateX(-2px); } }
+.poked { animation: poke-shake .65s ease; }

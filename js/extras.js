@@ -119,6 +119,7 @@
     var items = [];
     if (c.type === 'direct') {
       var busy = !!S.getRing() || !!(S.getCall(c.id) && S.getCall(c.id).joined);
+      items.push({ icon: 'hand', label: 'Poke ' + person(c.with).name, run: function () { sendPoke(c.with); } });
       items.push({ icon: 'phone', label: 'Start a call', disabled: busy, run: function () { U.openConversation(c.id).then(function () { S.startDirectCall(c.id, 'audio'); }); } });
     }
     items.push({ icon: c.pinned ? 'pin-off' : 'pin', label: c.pinned ? 'Unpin' : 'Pin to top', run: function () { togglePin(c.id); } });
@@ -195,6 +196,7 @@
       { icon: 'message-circle', label: 'Send message', run: function () { open(function () { var i = $('#composer-input'); if (i) i.focus(); }); } },
       { icon: 'phone', label: 'Voice call', run: function () { open(function (cid) { S.startDirectCall(cid, 'audio'); }); } },
       { icon: 'video', label: 'Video call', run: function () { open(function (cid) { S.startDirectCall(cid, 'video'); }); } },
+      { icon: 'hand', label: 'Poke', run: function () { sendPoke(id); } },
       { icon: 'at-sign', label: 'Mention', run: function () {
         var cc = U.currentConv(), ok = cc.type === 'direct' ? cc.with === id : cc.members.indexOf(id) !== -1;
         function put() { var i = $('#composer-input'); if (!i) return; i.value += (i.value && !/\s$/.test(i.value) ? ' ' : '') + '@' + person(id).name + ' '; i.focus(); }
@@ -458,6 +460,24 @@
     U.state.settings = false; U.renderSettings();
     setTimeout(function () { S.simulateIdea(['kid', 'chiroben', 'plushpants'][Math.floor(Math.random() * 3)]); }, 500);
   };
+  /* ---------- Pokes: a small "hey" that shakes the window ---------- */
+  function sendPoke(id) {
+    var p = person(id); if (!p || id === 'you') return;
+    S.poke(id).then(function (r) {
+      if (r === true) { U.chime('send'); toast('Poked ' + p.name); }
+      else if (r === 'slow') toast('Easy. Give ' + p.name + ' a few seconds.');
+      else toast('Couldn’t send that poke.');
+    });
+  }
+  A['poke'] = function (t) { sendPoke(t.dataset.id); };
+  A['poke-back'] = function (t) { U.closeBanner(); sendPoke(t.dataset.id); };
+  S.on('poked', function (e) {
+    var p = e && person(e.from); if (!p || U.quiet()) return;
+    var app = document.getElementById('app') || document.body;
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) { app.classList.remove('poked'); void app.offsetWidth; app.classList.add('poked'); setTimeout(function () { app.classList.remove('poked'); }, 700); }
+    if (st.sounds !== false) U.chime('poke');
+    U.showBanner({ who: p, badge: ico('hand', 'sm'), title: p.name + ' poked you', where: 'Right now', html: 'Poke them back?', openAction: 'poke-back', id: e.from });
+  });
   /* Someone new joined with an invite: everyone gets a friendly note with a shortcut to say hello. */
   S.on('joined', function (e) {
     var p = e && e.person; if (!p || U.quiet() || !st.alerts) return;

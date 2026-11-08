@@ -94,6 +94,7 @@
       if (kind === 'message') { tone(880, 0, 0.4, 0.05); tone(1174.66, 0.08, 0.4, 0.035); }
       if (kind === 'send') { tone(660, 0, 0.22, 0.04); }
       if (kind === 'mention') { tone(987.77, 0, 0.3, 0.085); tone(1318.5, 0.13, 0.3, 0.08); tone(1760, 0.26, 0.7, 0.07); }
+      if (kind === 'poke') { tone(392, 0, 0.14, 0.09); tone(523.25, 0.1, 0.14, 0.09); tone(329.63, 0.22, 0.45, 0.08); }
       if (kind === 'ring') { tone(784, 0, 0.4, 0.055); tone(987.77, 0.16, 0.4, 0.05); tone(1318.5, 0.32, 0.7, 0.04); }
       if (kind === 'declined') { tone(523.25, 0, 0.35, 0.05); tone(392, 0.16, 0.6, 0.045); }
     } catch (e) { /* audio unavailable */ }
@@ -672,7 +673,13 @@
   }
 
   /* ---------- Popovers ---------- */
-  var EMOJI = ['😀', '😂', '😍', '🥹', '😎', '🤔', '😮', '😢', '👍', '👏', '🙌', '🙏', '🔥', '✨', '🎉', '❤️', '💜', '✈️', '☁️', '🌙', '☕'];
+  var EMOJI_SETS = [
+    ['Smileys', ['😀','😃','😄','😁','😆','😅','😂','🤣','🥲','😊','🙂','😉','😍','🥰','😘','😋','😛','😜','🤪','🤔','🫡','🤨','😐','🙄','😏','😴','😮','😲','🥺','😢','😭','😤','😡','🤯','😱','🥳','😎','🤓','🥹','🫠','🤗','🤭','🫣','😬']],
+    ['Hands', ['👍','👎','👏','🙌','🙏','🤝','💪','👋','🤙','✌️','🤞','🫶','👀','🫵','🤌','👌','✊','🖖','☝️','🤘']],
+    ['Hearts & stars', ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💖','✨','⭐','🌟','💫','🔥','💯','💥','🎉','🎊','🏆']],
+    ['Fun & things', ['🎮','🎧','🎬','🎵','🍕','🍔','🍟','☕','🍺','🍻','🎂','🚀','✈️','🚗','🏖️','☁️','🌙','☀️','🌈','⚡','💻','📱','📸','🎁','💡','🧠','👻','💀','🤖','🐶','🐱','🦄']]
+  ];
+  var EMOJI = EMOJI_SETS.reduce(function (a, g) { return a.concat(g[1]); }, []);
   /* GIF picker: trending to start, search as you type, more as you scroll. */
   var gifs = { q: '', items: [], next: null, busy: false, err: '', t: null, seq: 0 };
   function paintGifs() {
@@ -700,7 +707,7 @@
     if (!slot) return;
     if (!p) { slot.innerHTML = ''; return; }
     if (p.type === 'emoji') {
-      slot.innerHTML = '<div class="popover emoji" role="dialog" aria-label="Emoji">' + EMOJI.map(function (e) { return '<button data-action="emoji-pick" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join('') + '</div>';
+      slot.innerHTML = '<div class="popover emoji" role="dialog" aria-label="Emoji">' + EMOJI_SETS.map(function (g) { return '<h4 class="emoji-h">' + g[0] + '</h4>' + g[1].map(function (e) { return '<button data-action="emoji-pick" data-emoji="' + e + '" aria-label="' + e + '">' + e + '</button>'; }).join(''); }).join('') + '</div>';
     } else if (p.type === 'gif') {
       slot.innerHTML = '<div class="popover gifs" role="dialog" aria-label="GIFs"><label class="field" for="gif-search">' + ico('search', 'sm') + '<input id="gif-search" type="search" placeholder="Search GIFs" autocomplete="off" value="' + esc(gifs.q) + '"></label>' +
         '<div class="gif-grid" id="gif-grid" aria-live="polite"></div><p class="gif-note">Powered by GIPHY</p></div>';
@@ -718,11 +725,11 @@
     closePopovers();
     var r = btn.getBoundingClientRect(), pop = document.createElement('div');
     pop.className = 'popover react-pop'; pop.dataset.popover = 'react';
-    pop.innerHTML = ['👍', '❤️', '😂', '😮', '🎉'].map(function (e) {
+    pop.innerHTML = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👏', '🙏', '😍', '🤔', '👀'].map(function (e) {
       return '<button data-action="react-pick" data-id="' + id + '" data-emoji="' + e + '" aria-label="React ' + e + '">' + e + '</button>';
     }).join('');
-    pop.style.top = Math.max(12, r.top - 56) + 'px';
-    pop.style.left = Math.max(12, Math.min(window.innerWidth - 240, r.left - 90)) + 'px';
+    pop.style.top = Math.max(12, r.top - 118) + 'px';
+    pop.style.left = Math.max(12, Math.min(window.innerWidth - 290, r.left - 120)) + 'px';
     overlay.appendChild(pop);
   }
   function closePopovers() {
@@ -753,7 +760,7 @@
     html += acc('files', 'file-text', 'Files', sh.files.length,
       sh.files.length ? sh.files.map(function (f) { return '<div class="row-item"><span class="file-icon">' + ico('file-text', 'sm') + '</span><span style="min-width:0"><b>' + esc(f.name) + '</b><span>' + esc(f.meta) + '</span></span></div>'; }).join('') : '<p class="empty" style="padding:8px 0">Files shared here will appear in this space.</p>');
     html += acc('links', 'link-2', 'Links', sh.links.length,
-      sh.links.length ? sh.links.map(function (l) { return '<div class="row-item"><span class="file-icon">' + ico('link-2', 'sm') + '</span><span style="min-width:0"><b>' + esc(l.name) + '</b><span>' + esc(l.meta) + '</span></span></div>'; }).join('') : '<p class="empty" style="padding:8px 0">Links shared here will appear in this space.</p>');
+      sh.links.length ? sh.links.map(function (l) { return '<' + (l.url ? 'a class="row-item" href="' + esc(l.url) + '" target="_blank" rel="noopener noreferrer"' : 'div class="row-item"') + '><span class="file-icon">' + ico('link-2', 'sm') + '</span><span style="min-width:0"><b>' + esc(l.name) + '</b><span>' + esc(l.meta) + '</span></span></' + (l.url ? 'a' : 'div') + '>'; }).join('') : '<p class="empty" style="padding:8px 0">Links shared here will appear in this space.</p>');
     $('#details').innerHTML = html;
   }
 

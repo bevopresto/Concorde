@@ -675,3 +675,32 @@ drop policy if exists tw_read  on storage.objects;
 drop policy if exists tw_write on storage.objects;
 create policy tw_read  on storage.objects for select using (bucket_id = 'tower');
 create policy tw_write on storage.objects for insert to authenticated with check (bucket_id = 'tower' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ================================================================ pokes (v0.18)
+-- A poke is a tiny "hey". The person gets a shake, a boop and a desktop alert. Rows only live a day.
+create table if not exists public.pokes (
+  id         uuid primary key default gen_random_uuid(),
+  from_id    uuid not null references public.profiles(id) on delete cascade,
+  to_id      uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.pokes enable row level security;
+drop policy if exists pokes_read on public.pokes;
+create policy pokes_read on public.pokes for select to authenticated using (to_id = auth.uid() or from_id = auth.uid());
+-- Nobody inserts directly; poke() does it, so the pace limit below can't be skipped.
+create or replace function public.poke(p_to uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null or p_to is null or p_to = uid then return false; end if;
+  if not exists (select 1 from public.profiles where id = p_to) then return false; end if;
+  -- at most one poke every 8 seconds per person
+  if exists (select 1 from public.pokes where from_id = uid and to_id = p_to and created_at > now() - interval '8 seconds') then return false; end if;
+  delete from public.pokes where created_at < now() - interval '1 day';
+  insert into public.pokes (from_id, to_id) values (uid, p_to);
+  return true;
+end $$;
+grant execute on function public.poke(uuid) to authenticated;
+do $$ begin
+  begin alter publication supabase_realtime add table public.pokes; exception when duplicate_object then null; when undefined_object then null; end;
+end $$;

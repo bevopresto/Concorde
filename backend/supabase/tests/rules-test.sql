@@ -217,4 +217,19 @@ select t_assert(not exists (select 1 from auth.users where id = '00000000-0000-0
 select t_assert(not exists (select 1 from public.messages where sender_id is null and type = 'text'), 'no ghost messages');
 select t_assert(not exists (select 1 from public.conversations c where c.type = 'direct' and not exists (select 1 from public.conversation_members m where m.conversation_id = c.id)), 'no empty chats left');
 
+-- pokes
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select public.poke('00000000-0000-0000-0000-00000000000b'::uuid) as pk1 \gset
+select t_assert(:'pk1' = 't', 'a poke goes through');
+select public.poke('00000000-0000-0000-0000-00000000000b'::uuid) as pk2 \gset
+select t_assert(:'pk2' = 'f', 'a second poke straight away is held back');
+select public.poke('00000000-0000-0000-0000-00000000000a'::uuid) as pk3 \gset
+select t_assert(:'pk3' = 'f', 'you cannot poke yourself');
+select t_assert((select count(*) from public.pokes) = 1, 'sender sees their poke');
+select t_as('00000000-0000-0000-0000-00000000000b');
+select t_assert((select count(*) from public.pokes) = 1, 'the poked person sees it');
+select t_as('00000000-0000-0000-0000-00000000000d');
+select t_assert((select count(*) from public.pokes) = 0, 'a bystander sees no pokes');
+reset role;
+
 \echo ALL-CHECKS-RAN

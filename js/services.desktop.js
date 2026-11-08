@@ -60,6 +60,11 @@
     var body = m.type === 'image' ? 'Sent a photo' : m.type === 'gif' ? 'Sent a GIF' : m.type === 'file' ? 'Sent a file' : plain(m.text);
     D.notify({ title: mention ? who.name + ' mentioned you' : (c && c.type === 'group' ? who.name + ' in ' + where : who.name), body: body, conversationId: e.conversationId });
   });
+  S.on('poked', function (e) {
+    if (!e || !away() || !st.alerts || quiet()) return;
+    var who = U.person(e.from) || { name: 'Someone' };
+    D.notify({ title: who.name + ' poked you', body: 'Open Concorde to poke back', conversationId: null });
+  });
   var ringSeen = null;
   S.on('ring', function (r) {
     if (!r || r.direction === 'out' || r.status === 'declined' || r.status === 'dnd') { ringSeen = null; return; }

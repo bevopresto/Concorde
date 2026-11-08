@@ -11,7 +11,7 @@
   var C = (window.Concorde = window.Concorde || {});
   var D = C.data;
 
-  var listeners = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [] };
+  var listeners = { message: [], typing: [], call: [], conversations: [], ring: [], tower: [], update: [], connection: [], invites: [], joined: [], poked: [] };
   function emit(type, payload) { listeners[type].forEach(function (fn) { fn(payload); }); }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   // Prototype clock: continues from the last made-up message (8:30 pm) so new messages stay in order.
@@ -151,6 +151,12 @@
     setPinned: function (id, on) { var c = conv(id); if (c) { c.pinned = !!on; emit('conversations'); } return Promise.resolve(c); },
     setChatMuted: function (id, on) { var c = conv(id); if (c) { c.muted = !!on; emit('conversations'); } return Promise.resolve(c); },
     /* Hide a one-to-one chat from your list. */
+    poke: function (personId) {
+      var now = Date.now(); this._pk = this._pk || {};
+      if (this._pk[personId] && now - this._pk[personId] < 8000) return Promise.resolve('slow');
+      this._pk[personId] = now; return Promise.resolve(true);
+    },
+    simulatePoke: function (from) { emit('poked', { from: from }); },
     hideChat: function (id) {
       var c = conv(id); if (!c || c.type !== 'direct') return Promise.resolve(false);
       D.conversations.splice(D.conversations.indexOf(c), 1); emit('conversations'); return Promise.resolve(true);
