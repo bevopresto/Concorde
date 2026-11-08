@@ -1344,3 +1344,20 @@ a.row-item:hover, button.row-item:hover, a.row-item:focus-visible, button.row-it
 .load-error b { color: var(--ink-1, inherit); font-size: 16px; }
 .load-error span { font-size: 13px; line-height: 1.45; }
 .load-error .btn-pill { margin-top: 10px; }
+
+/* About tab: version and change log */
+.about-ver { display: flex; flex-direction: column; gap: 2px; }
+.about-ver span { color: var(--ink-soft, inherit); opacity: .75; font-size: 13px; }
+.changelog { max-height: 340px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 16px; }
+.cl-entry h4 { margin: 0 0 6px; font-size: 15px; }
+.cl-entry h4 span { font-weight: 400; opacity: .65; font-size: 12px; margin-left: 6px; }
+.cl-entry ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; line-height: 1.4; }
+
+/* GIF picker for profile and group pictures */
+.modal.ag { width: min(460px, 92vw); display: flex; flex-direction: column; gap: 12px; }
+.modal.ag h2 { margin: 0; }
+.ag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; height: 300px; overflow-y: auto; align-content: start; }
+.ag-grid button { aspect-ratio: 1; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: transparent; }
+.ag-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ag-grid .gif-empty { grid-column: 1 / -1; }
+.ag-note { margin: 0; min-height: 18px; font-size: 13px; opacity: .75; }

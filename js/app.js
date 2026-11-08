@@ -837,7 +837,8 @@
   var playing = [];
   function playUrl(url) {
     if (!url) return;
-    try { var a = new Audio(url); a.volume = 0.85; playing.push(a); a.onended = a.onerror = function () { playing = playing.filter(function (x) { return x !== a; }); }; a.play().catch(function () {}); if (playing.length > 4) { var o = playing.shift(); o.pause(); } } catch (e) {}
+    playing.forEach(function (p) { if (p._url === url) p.pause(); }); playing = playing.filter(function (p) { return p._url !== url; });
+    try { var a = new Audio(url); a._url = url; a.volume = 0.85; playing.push(a); a.onended = a.onerror = function () { playing = playing.filter(function (x) { return x !== a; }); }; a.play().catch(function () {}); if (playing.length > 4) { var o = playing.shift(); o.pause(); } } catch (e) {}
   }
   function clipById(id) { return (S.sounds ? S.sounds() : []).filter(function (c) { return c.id === id; })[0]; }
   function playClip(id) {
@@ -935,7 +936,7 @@
     });
   }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', function () { if (state.settings && state.setTab === 'voice' && liveHW()) loadHardware(); });
-  var TABS = [['profile', 'user-round', 'My profile'], ['voice', 'mic', 'Voice & Video'], ['notify', 'bell', 'Notifications'], ['look', 'palette', 'Appearance'], ['tools', 'wrench', 'Prototype tools']];
+  var TABS = [['profile', 'user-round', 'My profile'], ['voice', 'mic', 'Voice & Video'], ['notify', 'bell', 'Notifications'], ['look', 'palette', 'Appearance'], ['tools', 'wrench', 'Prototype tools'], ['about', 'info', 'About']];
   function tabList() {
     var t = TABS.filter(function (x) { return !(x[0] === 'tools' && C.config && C.config.backend === 'live'); });
     if (S.isOwner()) { t.splice(4, 0, ['library', 'sparkles', 'Library']); t.splice(5, 0, ['invite', 'user-plus', 'Invite a friend']); }
@@ -1030,13 +1031,22 @@
   }
   S.on('emoji', function () { paintLibrary(); });
   S.on('library', function () { paintLibrary(); });
+  function aboutHTML() {
+    var v = C.version, log = C.changelog || [];
+    var date = function (d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); };
+    return '<h2>About</h2><div class="set-section about-ver"><strong>Concorde ' + esc(v.number) + '</strong><span>Released ' + esc(date(v.date)) + '</span></div>' +
+      '<h3 class="lb-h">What’s new</h3><div class="changelog" tabindex="0" role="region" aria-label="Change log">' + log.map(function (e) {
+        return '<section class="cl-entry"><h4>' + esc(e.v) + ' <span>' + esc(date(e.d)) + '</span></h4><ul>' + e.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul></section>';
+      }).join('') + '</div>';
+  }
   function paneHTML(tab) {
     var me = S.getCurrentUser();
     if (tab === 'invite' && S.isOwner() && C.ui.inviteHTML) return C.ui.inviteHTML();
     if (tab === 'library' && S.isOwner()) return libraryHTML();
+    if (tab === 'about') return aboutHTML();
     if (tab === 'profile') {
       return '<h2>My profile</h2><div class="set-section"><div class="avatar-row">' + avatar(me, 84) +
-        '<div class="avatar-side"><button class="btn-pill quiet" data-action="change-avatar">' + ico('image', 'sm') + 'Change avatar</button>' +
+        '<div class="avatar-side"><button class="btn-pill quiet" data-action="change-avatar">' + ico('image', 'sm') + 'Change avatar</button><button class="btn-pill quiet" data-action="avatar-gif">' + ico('sparkles', 'sm') + 'Use a GIF</button>' +
         '<div class="ring-pick" role="radiogroup" aria-label="Ring colour">' + RINGS.map(function (r, i) {
           var on = r[0] === me.c1 && r[1] === me.c2;
           return '<button type="button" class="ring-sw" role="radio" aria-checked="' + on + '" aria-label="' + r[2] + ' ring" title="' + r[2] + '" data-action="ring-pick" data-i="' + i + '" style="--c1:' + r[0] + ';--c2:' + r[1] + '"></button>';
@@ -1146,6 +1156,50 @@
       if (f.size > 2000000) { toast('Animated pictures need to be under 2 MB'); return; }
       r.onload = function () { onData(r.result); }; r.readAsDataURL(f);
     }
+  }
+  /* Pick a GIF (ours or GIPHY) to use as a profile or group picture. */
+  var ag = null;
+  function closeAG() { if (ag) { clearTimeout(ag.t); ag.el.remove(); ag = null; } }
+  function openAvatarGif(onData) {
+    closeAG();
+    var el = document.createElement('div'); el.className = 'scrim2'; el.dataset.action = 'ag-scrim';
+    var hasLib = !!(S.libraryGifs && S.libraryGifs().length);
+    ag = { el: el, onData: onData, tab: hasLib ? 'lib' : 'giphy', q: '', items: [], busy: false, err: '', seq: 0, t: null, saving: false };
+    el.innerHTML = '<div class="modal ag" role="dialog" aria-modal="true" aria-label="Choose a GIF picture"><h2>Choose a GIF</h2>' +
+      '<div class="gif-tabs" role="tablist"><button role="tab" data-action="ag-tab" data-tab="lib">Our GIFs</button><button role="tab" data-action="ag-tab" data-tab="giphy">GIPHY</button></div>' +
+      '<label class="field" for="ag-search">' + ico('search', 'sm') + '<input id="ag-search" type="search" placeholder="Search" autocomplete="off"></label>' +
+      '<div class="ag-grid" id="ag-grid"></div><p class="ag-note" id="ag-note"></p>' +
+      '<div class="modal-foot"><button class="btn-pill quiet" data-action="ag-close">Cancel</button></div></div>';
+    overlay.appendChild(el);
+    el.querySelector('#ag-search').addEventListener('input', function (e) { ag.q = e.target.value; clearTimeout(ag.t); if (ag.tab === 'giphy') ag.t = setTimeout(agLoad, 380); else agPaint(); });
+    agTab(ag.tab);
+  }
+  function agTab(t) {
+    ag.tab = t; ag.items = []; ag.err = '';
+    ag.el.querySelectorAll('[data-action="ag-tab"]').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.tab === t)); });
+    ag.el.querySelector('#ag-search').placeholder = t === 'lib' ? 'Search our GIFs' : 'Search GIPHY';
+    if (t === 'giphy') agLoad(); else agPaint();
+  }
+  function agLoad() {
+    var seq = ++ag.seq; ag.busy = true; agPaint();
+    S.searchGifs(ag.q, 0).then(function (r) { if (!ag || seq !== ag.seq) return; ag.items = r.items || []; ag.busy = false; agPaint(); })
+      .catch(function (e) { if (!ag || seq !== ag.seq) return; ag.busy = false; ag.err = e && e.code === 'not_set_up' ? 'GIF search is not set up yet.' : 'Couldn’t load GIFs. Check your connection and try again.'; agPaint(); });
+  }
+  function agPaint() {
+    var g = ag && ag.el.querySelector('#ag-grid'); if (!g) return;
+    var items = ag.items;
+    if (ag.tab === 'lib') { var q = ag.q.trim().toLowerCase(); items = (S.libraryGifs ? S.libraryGifs() : []).filter(function (x) { return !q || x.name.toLowerCase().indexOf(q) !== -1; }).map(function (x) { return { id: x.id, title: x.name, url: x.url, preview: x.url }; }); ag.items = items; }
+    if (ag.err) { g.innerHTML = '<p class="gif-empty">' + esc(ag.err) + '</p>'; return; }
+    if (!items.length) { g.innerHTML = '<p class="gif-empty">' + (ag.busy ? 'Loading…' : ag.tab === 'lib' ? 'No GIFs here yet.' : 'No GIFs found. Try another word.') + '</p>'; return; }
+    g.innerHTML = items.map(function (it, i) { return '<button data-action="ag-pick" data-i="' + i + '" aria-label="' + esc(it.title) + '"><img alt="" loading="lazy" src="' + esc(it.preview || it.url) + '"></button>'; }).join('');
+  }
+  function agPick(i) {
+    var it = ag && ag.items[i]; if (!it || ag.saving) return;
+    ag.saving = true; var note = ag.el.querySelector('#ag-note'); note.textContent = 'Getting that GIF…';
+    fetch(it.url).then(function (r) { if (!r.ok) throw new Error('bad'); return r.blob(); }).then(function (b) {
+      if (b.size > 2000000) { note.textContent = 'That GIF is over 2 MB. Try a smaller one.'; ag.saving = false; return; }
+      var fr = new FileReader(); fr.onload = function () { var cb = ag && ag.onData; closeAG(); if (cb) cb(fr.result); }; fr.readAsDataURL(b);
+    }).catch(function () { if (!ag) return; note.textContent = 'Couldn’t get that GIF. Try another.'; ag.saving = false; });
   }
   /* A small emoji drawer for any text box (status, group name). Opens under the box. */
   function attachEmojiDrawer(input, host) {
@@ -1309,7 +1363,7 @@
     var nm = d.name || d.fallback || 'Group';
     var av = avatar({ name: nm, c1: d.c1, c2: d.c2, avatar: d.avatar }, 76, { group: true, letter: groupLetter(nm) });
     return '<button type="button" class="look-avatar" data-action="grp-photo" aria-label="Choose a group picture">' + av + '<span class="look-cam">' + ico('image', 'sm') + '</span></button>' +
-      '<div class="avatar-side"><div class="look-btns"><button type="button" class="btn-pill quiet" data-action="grp-photo">' + ico('image', 'sm') + (d.avatar ? 'Change photo' : 'Add photo') + '</button>' +
+      '<div class="avatar-side"><div class="look-btns"><button type="button" class="btn-pill quiet" data-action="grp-photo">' + ico('image', 'sm') + (d.avatar ? 'Change photo' : 'Add photo') + '</button>' +'<button type="button" class="btn-pill quiet" data-action="grp-gif">' + ico('sparkles', 'sm') + 'Use a GIF</button>' +
       (d.avatar ? '<button type="button" class="btn-pill quiet" data-action="grp-unphoto">Remove</button>' : '') + '</div>' +
       '<div class="ring-pick" role="radiogroup" aria-label="Ring colour">' + RINGS.map(function (r, i) {
         return '<button type="button" class="ring-sw" role="radio" aria-checked="' + (r[0] === d.c1 && r[1] === d.c2) + '" aria-label="' + r[2] + ' ring" title="' + r[2] + '" data-action="grp-ring" data-i="' + i + '" style="--c1:' + r[0] + ';--c2:' + r[1] + '"></button>';
@@ -1507,6 +1561,7 @@
     if (a === 'edit-scrim') { if (ev.target === t) closeEdit(); return; }
     if (a === 'new-scrim') { if (ev.target === t) closeNew(); return; }
     if (a === 'crop-scrim') { if (ev.target === t) closeCrop(); return; }
+    if (a === 'ag-scrim') { if (ev.target === t) closeAG(); return; }
     if (a === 'settings-close') { if (ev.target === t) { state.settings = false; renderSettings(); } return; }
     if (a !== 'select-toggle' && a !== 'select-option') setSelect(false);
     if (!ev.target.closest('.popover') && a !== 'emoji-open' && a !== 'gif-open' && a !== 'attach-open' && a !== 'react-open' && a !== 'sb-open') closePopovers();
@@ -1651,6 +1706,11 @@
       case 'toggle-alerts': state.alerts = !state.alerts; store.set('alerts', state.alerts ? 'on' : 'off'); t.setAttribute('aria-checked', String(state.alerts)); break;
       case 'toggle-autoaway': state.autoAway = !state.autoAway; store.set('autoAway', state.autoAway ? 'on' : 'off'); t.setAttribute('aria-checked', String(state.autoAway)); break;
       case 'change-avatar': $('#file-avatar').click(); break;
+      case 'avatar-gif': openAvatarGif(function (data) { S.updateProfile({ avatar: data }).then(function () { refreshSettingsAvatar(); refreshAvatarEverywhere(); }); }); break;
+      case 'grp-gif': { var gd = activeDlg(); if (gd) openAvatarGif(function (data) { gd.draft.avatar = data; paintLook(gd.el, gd.draft); }); break; }
+      case 'ag-tab': if (ag) agTab(t.dataset.tab); break;
+      case 'ag-pick': agPick(+t.dataset.i); break;
+      case 'ag-close': closeAG(); break;
       case 'ring-pick': { var rg = RINGS[+t.dataset.i]; S.updateProfile({ c1: rg[0], c2: rg[1] }).then(function () { refreshSettingsAvatar(); refreshAvatarEverywhere(); }); break; }
       case 'crop-cancel': closeCrop(); break;
       case 'crop-save': saveCrop(); break;

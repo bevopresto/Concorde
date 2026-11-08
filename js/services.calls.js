@@ -218,7 +218,7 @@
   function micTrack() { var pub = room && room.localParticipant.getTrackPublication(LK.Track.Source.Microphone); return pub && pub.audioTrack ? pub.audioTrack : null; }
   var procOwnCtx = null;
   function micProcessor() {
-    var ctx, src, dest, rn = null, own = false, strong = pref('profileMode', 'voice') === 'strong';
+    var ctx, src, dest, rn = null, merger = null, own = false, strong = pref('profileMode', 'voice') === 'strong';
     return {
       name: 'concorde-mic', kind: 'audio', processedTrack: undefined,
       init: function (o) {
@@ -230,17 +230,21 @@
           src = ctx.createMediaStreamSource(new MediaStream([o.track]));
           gainNode = ctx.createGain(); gainNode.gain.value = gainFor();
           dest = ctx.createMediaStreamDestination();
-          if (rn) { src.connect(rn); rn.connect(gainNode); } else src.connect(gainNode);
+          if (rn) { src.connect(rn); merger = bothEars(ctx, rn, gainNode); } else src.connect(gainNode);
           gainNode.connect(dest);
           me.processedTrack = dest.stream.getAudioTracks()[0];
         });
       },
       restart: function (o) { var me = this; return this.destroy().then(function () { return me.init(o); }); },
       destroy: function () {
-        try { if (src) src.disconnect(); if (rn) { rn.disconnect(); rn.destroy(); } if (gainNode) gainNode.disconnect(); if (own && ctx) ctx.close(); } catch (e) { /* closed */ }
-        gainNode = null; rn = null; return Promise.resolve();
+        try { if (src) src.disconnect(); if (merger) merger.disconnect(); if (rn) { rn.disconnect(); rn.destroy(); } if (gainNode) gainNode.disconnect(); if (own && ctx) ctx.close(); } catch (e) { /* closed */ }
+        gainNode = null; rn = null; merger = null; return Promise.resolve();
       }
     };
+  }
+  /* RNNoise gives one channel. Copy it to both left and right so it doesn't play from one side only. */
+  function bothEars(ctx, node, out) {
+    var m = ctx.createChannelMerger(2); node.connect(m, 0, 0); node.connect(m, 0, 1); m.connect(out); return m;
   }
   var gainOn = false, gainStrong = false;
   HW._test = { micProcessor: function () { return micProcessor(); }, makeRnnoise: makeRnnoise };
@@ -302,9 +306,9 @@
     return md.getUserMedia({ audio: audio }).catch(function () { return md.getUserMedia({ audio: true }); }).then(function (raw) {
       if (!strongMode) return { st: raw, raw: raw, extra: null };
       return makeRnnoise(null).then(function (r) {
-        var src = r.ctx.createMediaStreamSource(raw), dst = r.ctx.createMediaStreamDestination(); src.connect(r.node); r.node.connect(dst);
+        var src = r.ctx.createMediaStreamSource(raw), dst = r.ctx.createMediaStreamDestination(); src.connect(r.node); var mg = bothEars(r.ctx, r.node, dst);
         if (r.ctx.state === 'suspended') r.ctx.resume().catch(function () {});
-        return { st: dst.stream, raw: raw, extra: function () { try { src.disconnect(); r.node.disconnect(); r.node.destroy(); r.ctx.close(); } catch (e) { /* closed */ } } };
+        return { st: dst.stream, raw: raw, extra: function () { try { src.disconnect(); mg.disconnect(); r.node.disconnect(); r.node.destroy(); r.ctx.close(); } catch (e) { /* closed */ } } };
       }).catch(function () { strongFailed(); return { st: raw, raw: raw, extra: null }; });
     }).then(function (pack) {
       var st = pack.st;
