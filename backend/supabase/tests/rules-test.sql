@@ -272,4 +272,34 @@ set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
 select t_assert(public.delete_group((select id from public.conversations where type = 'direct' limit 1)) = false, 'delete_group refuses a one-to-one chat');
 reset role;
 
+-- purge deleted messages
+select public.create_group('Tidy', array['00000000-0000-0000-0000-00000000000c'::uuid], null, null) as tgrp \gset
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000b');
+reset role;
+insert into public.messages (conversation_id, sender_id, type, text, deleted_at) values
+  (:'tgrp', '00000000-0000-0000-0000-00000000000b', 'text', 'old gone', now() - interval '2 hours'),
+  (:'tgrp', '00000000-0000-0000-0000-00000000000b', 'text', 'fresh gone', now() - interval '5 minutes'),
+  (:'tgrp', '00000000-0000-0000-0000-00000000000b', 'text', 'still here', null);
+select t_assert(public.purge_deleted_messages() = 1, 'purge removes only the old deleted message');
+select t_assert((select count(*) from public.messages where conversation_id = :'tgrp' and type = 'text') = 2, 'recent deletions and normal messages stay');
+select t_assert(not has_function_privilege('anon', 'public.purge_deleted_messages(interval)', 'execute'), 'the public cannot run the purge');
+
+-- add people to a group (any member can add anyone)
+select t_as('00000000-0000-0000-0000-00000000000b');
+select public.create_group('Grow', array['00000000-0000-0000-0000-00000000000e'::uuid], null, null) as ggrp \gset
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000e');
+select t_assert(public.add_group_members(:'ggrp', array['00000000-0000-0000-0000-00000000000a'::uuid]) = 1, 'a plain member can add someone');
+select t_assert((select count(*) from public.conversation_members where conversation_id = :'ggrp') = 3, 'the new person is now a member');
+select t_assert(public.add_group_members(:'ggrp', array['00000000-0000-0000-0000-00000000000a'::uuid]) = 0, 'adding someone already in does nothing');
+select t_assert((select count(*) from public.messages where conversation_id = :'ggrp' and type = 'system' and text like '% added %') = 1, 'one note says who was added');
+select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert((select count(*) from public.messages where conversation_id = :'ggrp') >= 2, 'the new member can read the whole chat');
+reset role;
+-- an outsider cannot add people to a group they are not in
+select t_as('00000000-0000-0000-0000-00000000000b');
+select public.create_group('Closed', array['00000000-0000-0000-0000-00000000000e'::uuid], null, null) as cgrp \gset
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert(public.add_group_members(:'cgrp', array['00000000-0000-0000-0000-00000000000a'::uuid]) = 0, 'a non-member cannot add people');
+reset role;
+
 \echo ALL-CHECKS-RAN

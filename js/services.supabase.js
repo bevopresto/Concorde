@@ -145,7 +145,7 @@
       time: clock(r.created_at), d: dayDiff(r.created_at), replyTo: r.reply_to || null, reactions: groupReacts(r.reactions) };
     if (r.edited_at) m.edited = true;
     if (p.effect) m.effect = p.effect;
-    if (r.deleted_at) { m.deleted = true; m.reactions = []; m.text = ''; return m; }
+    if (r.deleted_at) { m.deleted = true; m.deletedAt = new Date(r.deleted_at).getTime(); m.reactions = []; m.text = ''; return m; }
     if (r.type === 'image') {
       m.images = (p.images || []).map(function (i) { return { image: urlCache[i.path] || '', name: i.name }; });
       if (m.images.length === 1) { m.image = m.images[0].image; m.name = m.images[0].name; }
@@ -629,6 +629,16 @@
       delete msgs[id]; delete loaded[id]; emit('conversations'); return true;
     }).catch(function () { return false; });
   };
+  /* Any member can add friends to a group. Resolves to how many were added. */
+  S.addGroupMembers = function (id, personIds) {
+    var c = conv(id); if (!c || c.type !== 'group') return Promise.resolve(0);
+    var ids = (personIds || []).map(mine).filter(function (x) { return x && x !== myId; });
+    if (!ids.length) return Promise.resolve(0);
+    return sb.rpc('add_group_members', { p_conv: id, p_users: ids }).then(function (r) {
+      if (r.error) { throw wrapErr(r.error, /group_full/.test(r.error.message || '') ? 'full' : 'unknown', /group_full/.test(r.error.message || '') ? 'That group is full. Groups hold up to 10 people.' : 'Couldn’t add them. Try again.'); }
+      return loadConversations().then(function () { return r.data || 0; });
+    });
+  };
   /* Owner only: delete a group for everyone. Best effort to clear its attached files first. */
   S.deleteGroup = function (id) {
     var c = conv(id); if (!c || c.type !== 'group' || !isOwnerFlag) return Promise.resolve(false);
@@ -811,7 +821,7 @@
   };
   S.deleteMessage = function (id, messageId) {
     var m = (msgs[id] || []).filter(function (x) { return x.id === messageId && x.from === 'you'; })[0]; if (!m || m._local) return Promise.resolve(null);
-    m.deleted = true; m.reactions = []; m.text = ''; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
+    m.deleted = true; m.deletedAt = Date.now(); m.reactions = []; m.text = ''; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
     return sb.from('messages').update({ deleted_at: new Date().toISOString() }).eq('id', messageId).then(function () { return m; });
   };
   S.toggleReaction = function (id, messageId, emoji) {

@@ -626,10 +626,15 @@
     return out.charAt(0).toUpperCase() + out.slice(1) + ' reacted';
   }
 
+  /* A deleted message leaves a "Message deleted" note for an hour, then disappears (the server removes it for good too). */
+  var DELETED_KEEP_MS = 60 * 60 * 1000;
+  function expiredDeleted(m) { return !!(m.deleted && m.deletedAt && Date.now() - m.deletedAt > DELETED_KEEP_MS); }
+  function visibleMessages() { var all = state.messages; var out = all.filter(function (m) { return !expiredDeleted(m); }); state.hiddenDeleted = all.length - out.length; return out; }
+  setInterval(function () { if (state.screen === 'app' && currentConv() && state.messages.filter(expiredDeleted).length !== (state.hiddenDeleted || 0)) renderMessages(); }, 60000);
   function renderMessages(opts) {
     opts = opts || {};
     if (!currentConv()) return;
-    var list = state.messages, c = currentConv(), isGroup = c.type === 'group', html = '';
+    var list = visibleMessages(), c = currentConv(), isGroup = c.type === 'group', html = '';
     if (state.loadError === c.id) {
       var offline = S.getConnection && !S.getConnection().online;
       $('#messages').innerHTML = '<div class="load-error" role="alert">' + ico('wifi-off') + '<b>Couldn’t load messages</b><span>' + (offline ? 'You look to be offline. They’ll load when you’re back.' : 'Something went wrong reaching the server. Your chat is safe.') + '</span><button class="btn-pill" data-action="retry-load">' + ico('refresh-cw', 'sm') + 'Try again</button></div>';
@@ -892,7 +897,7 @@
       html += acc('members', 'users', 'Members', c.members.length, c.members.map(function (id) {
         var p = person(id);
         return '<div class="member" data-person="' + id + '">' + avatar(p, 34, { dot: true }) + '<div><b>' + (id === 'you' ? esc(p.name) + ' (you)' : esc(p.name)) + '</b><span>' + statusLine(p) + '</span></div></div>';
-      }).join('') + '<button class="btn-pill quiet danger leave-btn" data-action="leave-group" data-id="' + c.id + '">' + ico('log-out', 'sm') + 'Leave group</button>' + (S.isOwner() ? '<button class="btn-pill quiet danger leave-btn" data-action="delete-group" data-id="' + c.id + '">' + ico('trash-2', 'sm') + 'Delete group for everyone</button>' : ''));
+      }).join('') + '<button class="btn-pill quiet leave-btn" data-action="add-people" data-id="' + c.id + '">' + ico('user-plus', 'sm') + 'Add people</button>' + '<button class="btn-pill quiet danger leave-btn" data-action="leave-group" data-id="' + c.id + '">' + ico('log-out', 'sm') + 'Leave group</button>' + (S.isOwner() ? '<button class="btn-pill quiet danger leave-btn" data-action="delete-group" data-id="' + c.id + '">' + ico('trash-2', 'sm') + 'Delete group for everyone</button>' : ''));
     }
     html += acc('media', 'image', 'Media', sh.media.length,
       sh.media.length ? '<div class="thumbs">' + sh.media.map(function (s) { return s && s.image ? (s.mid ? '<button class="thumb-btn" data-action="view-image" data-id="' + s.mid + '" data-i="' + (s.i || 0) + '" aria-label="View ' + esc(s.name || 'photo') + ' larger">' : '') + '<img class="scene" src="' + esc(s.image) + '" alt="' + esc(s.name || 'Shared photo') + '" style="object-fit:cover">' + (s.mid ? '</button>' : '') : scene(s, 100, 100); }).join('') + '</div>' : '<p class="empty" style="padding:8px 0">Photos shared here will appear in this space.</p>');

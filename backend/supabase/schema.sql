@@ -784,3 +784,48 @@ begin
   return true;
 end $$;
 grant execute on function public.delete_group(uuid) to authenticated;
+
+-- ================================================================ tidy up deleted messages
+-- A deleted message shows "Message deleted" for an hour. After that it is removed for good (reactions go with it;
+-- replies to it simply lose their quote). Runs every 15 minutes through pg_cron if that extension is switched on.
+create or replace function public.purge_deleted_messages(p_keep interval default interval '1 hour') returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  delete from public.messages where deleted_at is not null and deleted_at < now() - p_keep;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke all on function public.purge_deleted_messages(interval) from public, anon, authenticated;
+
+do $$ begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'purge-deleted-messages';
+    perform cron.schedule('purge-deleted-messages', '*/15 * * * *', 'select public.purge_deleted_messages()');
+  end if;
+exception when others then null; end $$;
+
+-- ================================================================ add people to a group
+-- Any member can add anyone to a group they are in. Groups hold up to 10 people. Everyone can read the whole chat.
+create or replace function public.add_group_members(p_conv uuid, p_users uuid[]) returns integer
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); u uuid; added text[] := '{}'; nm text; who text; cnt integer;
+begin
+  if not exists (select 1 from public.conversations c where c.id = p_conv and c.type = 'group') or not public.is_member(p_conv) then return 0; end if;
+  foreach u in array p_users loop
+    select count(*) into cnt from public.conversation_members where conversation_id = p_conv;
+    if cnt >= 10 then raise exception 'group_full'; end if;
+    select name into nm from public.profiles where id = u;
+    if nm is not null and not exists (select 1 from public.conversation_members where conversation_id = p_conv and user_id = u) then
+      insert into public.conversation_members (conversation_id, user_id) values (p_conv, u);
+      added := added || nm;
+    end if;
+  end loop;
+  if array_length(added, 1) is null then return 0; end if;
+  select name into who from public.profiles where id = uid;
+  insert into public.messages (conversation_id, sender_id, type, text, payload)
+    values (p_conv, null, 'system', who || ' added ' || array_to_string(added, ', '), '{"icon":"user-plus"}');
+  return array_length(added, 1);
+end $$;
+grant execute on function public.add_group_members(uuid, uuid[]) to authenticated;
+

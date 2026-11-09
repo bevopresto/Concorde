@@ -80,6 +80,46 @@
       });
     } });
   }
+  /* Add people to a group: a short list of friends who are not in it yet. */
+  var addDlg = null;
+  function closeAdd() { if (addDlg) { addDlg.el.remove(); addDlg = null; } }
+  function openAdd(id) {
+    var c = convById(id); if (!c || c.type !== 'group') return; closeAdd();
+    var room = 10 - c.members.length;
+    var el = document.createElement('div'); el.className = 'scrim2'; el.dataset.action = 'add-scrim';
+    el.innerHTML = '<div class="modal new-dlg" role="dialog" aria-modal="true" aria-labelledby="add-title">' +
+      '<div class="new-head"><div><h2 id="add-title">Add people to ' + esc(c.name) + '</h2><p class="crop-hint" id="add-sub"></p></div>' +
+      '<button class="btn-round sm" data-action="add-cancel" aria-label="Close">' + ico('x', 'sm') + '</button></div>' +
+      '<ul class="pick-list" id="add-list"></ul><p class="name-hint" id="add-err" role="alert"></p>' +
+      '<div class="modal-foot"><button class="btn-pill quiet" data-action="add-cancel">Cancel</button><button class="btn-pill" id="add-go" data-action="add-go" disabled>Add</button></div></div>';
+    overlay.appendChild(el);
+    var people = Object.keys(C.data.people).filter(function (p) { return p !== 'you' && c.members.indexOf(p) === -1; }).map(person);
+    addDlg = { el: el, id: id, picked: [], room: room, people: people };
+    paintAdd();
+    el.querySelector('#add-list').addEventListener('change', function (e) {
+      var pid = e.target.value, at = addDlg.picked.indexOf(pid);
+      if (e.target.checked && at === -1) { if (addDlg.picked.length >= addDlg.room) { e.target.checked = false; return; } addDlg.picked.push(pid); }
+      if (!e.target.checked && at !== -1) addDlg.picked.splice(at, 1);
+      paintAdd();
+    });
+  }
+  function paintAdd() {
+    var d = addDlg; if (!d) return; var n = d.picked.length, c = convById(d.id);
+    d.el.querySelector('#add-sub').textContent = d.room <= 0 ? 'This group is full. Groups hold up to 10 people.' : n ? 'Adding ' + d.picked.map(function (p) { return person(p).name; }).join(', ') + '. They’ll be able to read the whole chat.' : 'Pick who to add. They’ll be able to read the whole chat.';
+    var go = d.el.querySelector('#add-go'); go.disabled = !n; go.textContent = n > 1 ? 'Add ' + n + ' people' : n === 1 ? 'Add ' + person(d.picked[0]).name : 'Add';
+    d.el.querySelector('#add-list').innerHTML = d.people.length ? d.people.map(function (p) {
+      var on = d.picked.indexOf(p.id) !== -1;
+      return '<li><label class="pick' + (on ? ' on' : '') + '">' + avatar(p, 44, { dot: true }) + '<span class="pick-text"><b>' + esc(p.name) + '</b></span>' +
+        '<input type="checkbox" value="' + p.id + '"' + (on ? ' checked' : '') + ' aria-label="' + esc(p.name) + '"><span class="chk" aria-hidden="true">' + ico('check', 'sm') + '</span></label></li>';
+    }).join('') : '<li class="pick-empty">Everyone who’s on Concorde is already in this group. Someone new needs to install it first.</li>';
+  }
+  function doAdd() {
+    var d = addDlg; if (!d || !d.picked.length) return; var ids = d.picked.slice(), c = convById(d.id);
+    d.el.querySelector('#add-go').disabled = true;
+    S.addGroupMembers(d.id, ids).then(function (n) {
+      closeAdd(); toast(n ? (n === 1 ? person(ids[0]).name + ' was added' : n + ' people were added') : 'No one new to add'); U.renderList();
+    }).catch(function (e) { var er = d.el.querySelector('#add-err'); if (er) er.textContent = (e && e.message) || 'Couldn’t add them. Try again.'; var g = d.el.querySelector('#add-go'); if (g) g.disabled = false; });
+  }
   function askDeleteGroup(id) {
     var c = convById(id); if (!c || c.type !== 'group' || !S.isOwner()) return;
     confirmBox({ title: 'Delete ' + c.name + ' for everyone?', body: 'The group and all of its messages, photos and files will be gone for every member. This can’t be undone.', yes: 'Delete group', onYes: function () {
@@ -126,6 +166,10 @@
   A['toggle-mute-chat'] = function () { toggleMuteChat(st.convId); };
   A['leave-group'] = function (t) { askLeave(t.dataset.id); };
   A['delete-group'] = function (t) { askDeleteGroup(t.dataset.id); };
+  A['add-people'] = function (t) { openAdd(t.dataset.id); };
+  A['add-cancel'] = function () { closeAdd(); };
+  A['add-go'] = function () { doAdd(); };
+  A['add-scrim'] = function (t, ev) { if (ev && ev.target === t) closeAdd(); };
 
   /* ---------- Right-click menus ---------- */
   function convMenu(c) {
@@ -140,6 +184,7 @@
     if (c.type === 'group') {
       items.push({ sep: true });
       items.push({ icon: 'pencil', label: 'Edit group', run: function () { U.openEdit(c.id); } });
+      items.push({ icon: 'user-plus', label: 'Add people', run: function () { openAdd(c.id); } });
       items.push({ icon: 'log-out', label: 'Leave group', danger: true, run: function () { askLeave(c.id); } });
       if (S.isOwner()) items.push({ icon: 'trash-2', label: 'Delete group for everyone…', danger: true, run: function () { askDeleteGroup(c.id); } });
     } else {

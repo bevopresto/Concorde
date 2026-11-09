@@ -208,6 +208,17 @@
       emit('conversations');
       return wait(120).then(function () { return true; });
     },
+    /* Any member can add friends to a group. */
+    addGroupMembers: function (id, personIds) {
+      var c = conv(id); if (!c || c.type !== 'group') return Promise.resolve(0);
+      var add = (personIds || []).filter(function (p) { return p !== 'you' && c.members.indexOf(p) === -1; });
+      if (c.members.length + add.length > 10) return Promise.reject({ code: 'full', message: 'That group is full. Groups hold up to 10 people.' });
+      if (!add.length) return Promise.resolve(0);
+      add.forEach(function (p) { c.members.push(p); });
+      D.messages[id].push({ id: 'u' + (++uid), from: 'system', type: 'system', icon: 'user-plus', text: me.name + ' added ' + add.map(function (p) { return D.people[p].name; }).join(', '), time: nowLabel() });
+      emit('message', { conversationId: id, message: D.messages[id][D.messages[id].length - 1] }); emit('conversations');
+      return wait(120).then(function () { return add.length; });
+    },
     /* Owner only: delete a group for everyone. */
     deleteGroup: function (id) {
       var c = conv(id); if (!c || c.type !== 'group') return Promise.resolve(false);
@@ -299,7 +310,7 @@
     deleteMessage: function (id, messageId) {
       var m = (D.messages[id] || []).filter(function (x) { return x.id === messageId && x.from === 'you'; })[0];
       if (!m) return Promise.resolve(null);
-      m.deleted = true; m.reactions = []; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
+      m.deleted = true; m.deletedAt = Date.now(); m.reactions = []; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
       return Promise.resolve(m);
     },
     toggleReaction: function (id, messageId, emoji) {

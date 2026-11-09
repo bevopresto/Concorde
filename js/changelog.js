@@ -2,6 +2,10 @@
    Keep the wording friendly: this is for friends, not developers. */
 window.Concorde = window.Concorde || {};
 window.Concorde.changelog = [
+  { v: '0.21.4', d: '2026-11-09', items: [
+    'New: add people to a group after it’s been made. Use “Add people” in the group’s details or right-click menu. Anyone in the group can add anyone, and new people can read the whole chat.',
+    'Better: a “Message deleted” note now disappears after an hour.',
+    'Better: if GitHub has a temporary hiccup, update checks try again by themselves before showing an error.' ] },
   { v: '0.21.3', d: '2026-11-09', items: [
     'New: a “Check for updates” button at the top of this About page.',
     'Better: Concorde now looks for updates every 30 minutes and when you come back to the window, instead of every 4 hours.',

@@ -93,6 +93,16 @@ function createTray() {
 /* ---------- updates (installed app only; it checks the GitHub release page) ---------- */
 let autoUpdater = null;
 let lastUpdateError = '';
+/* GitHub sometimes answers with a temporary 5xx error. Try again a couple of times before giving up. */
+let inCheck = false;
+async function checkWithRetry() {
+  let err; inCheck = true;
+  for (let i = 0; i < 3; i++) {
+    try { const r = await autoUpdater.checkForUpdates(); inCheck = false; return r; }
+    catch (e) { err = e; if (!/\b5\d\d\b|ETIMEDOUT|ECONNRESET|EAI_AGAIN/.test(String((e && e.message) || e))) break; await new Promise((r) => setTimeout(r, 4000 * (i + 1))); }
+  }
+  inCheck = false; throw err;
+}
 /* Turn an update error into one plain sentence. Keeps the real reason so we can fix it. */
 function reasonOf(e) {
   const m = String((e && (e.message || e)) || 'unknown error').replace(/\s+/g, ' ');
@@ -108,10 +118,10 @@ function setupUpdates() {
   try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { return; }
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-downloaded', (info) => { update = { available: true, version: info.version, installing: false }; endManual(); if (manual === false) { /* quiet */ } pushUpdate(); refreshTray(); });
-  autoUpdater.on('error', (e) => { lastUpdateError = reasonOf(e); if (manual) tell('Couldn’t check for updates', lastUpdateError); endManual(); });
+  autoUpdater.on('error', (e) => { lastUpdateError = reasonOf(e); if (inCheck) return; /* a failed check is reported (after retries) by the caller */ if (manual) tell('Couldn’t check for updates', lastUpdateError); endManual(); });
   autoUpdater.on('update-available', (info) => { if (manual) tell('Update found', 'Downloading v' + info.version + '. The tray menu will offer a restart when it’s ready.'); });
   autoUpdater.on('update-not-available', () => { if (manual) tell('You’re up to date', 'Concorde v' + app.getVersion() + ' is the latest.'); endManual(); });
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  const check = () => checkWithRetry().catch(() => {});
   /* Check shortly after opening, every 30 minutes, and when you come back to the window (at most every 5 minutes). */
   let lastCheck = 0; const checkSoon = () => { if (Date.now() - lastCheck > 5 * 60 * 1000) { lastCheck = Date.now(); check(); } };
   setTimeout(checkSoon, 12000); setInterval(() => { lastCheck = Date.now(); check(); }, 30 * 60 * 1000);
@@ -125,7 +135,7 @@ function manualCheck() {
   if (!autoUpdater) { tell('Updates', 'Updates only work in the installed app.'); return; }
   if (update.available) { tell('Update ready', 'Use “Restart to update” in this menu.'); return; }
   manual = true; update.checking = true; refreshTray();
-  autoUpdater.checkForUpdates().catch((e) => { tell('Couldn’t check for updates', reasonOf(e)); endManual(); });
+  checkWithRetry().catch((e) => { tell('Couldn’t check for updates', reasonOf(e)); endManual(); });
   setTimeout(() => { if (manual) { endManual(); } }, 60000);
 }
 function pushUpdate() { if (win && !win.isDestroyed()) win.webContents.send('desktop:update', update); }
@@ -147,7 +157,7 @@ ipcMain.handle('desktop:check-update', async () => {
   if (!autoUpdater) return { ...update, state: 'unavailable' };
   if (update.available) return { ...update, state: 'ready' };
   try {
-    const r = await autoUpdater.checkForUpdates();
+    const r = await checkWithRetry();
     if (update.available) return { ...update, state: 'ready' };
     if (r && r.isUpdateAvailable) return { ...update, state: 'downloading', version: r.updateInfo && r.updateInfo.version };
     return { ...update, state: 'latest' };
