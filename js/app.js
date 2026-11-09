@@ -84,8 +84,17 @@
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + dur + 0.05);
   }
+  /* Owner-only experiment: try your own sound files for each event. Kept on this computer only. */
+  var SFX_EVENTS = [['message', 'New message'], ['mention', 'Someone mentions you'], ['send', 'You send a message'], ['join', 'Joined, or something good happened'], ['leave', 'Left, or went offline'], ['ring', 'Incoming call'], ['declined', 'Call declined'], ['poke', 'Poke'], ['confetti', 'Confetti'], ['fireworks', 'Fireworks'], ['hearts', 'Hearts']];
+  function sfxMap() { try { return JSON.parse(localStorage.getItem('concorde.sfx') || '{}') || {}; } catch (e) { return {}; } }
+  function sfxSave(m) { try { localStorage.setItem('concorde.sfx', JSON.stringify(m)); return true; } catch (e) { return false; } }
+  var sfxPlaying = {};
+  function playOverride(kind, o) {
+    try { if (sfxPlaying[kind]) sfxPlaying[kind].pause(); var a = new Audio(o.d); a.volume = 0.7; sfxPlaying[kind] = a; a.play().catch(function () {}); } catch (e) { /* ignore */ }
+  }
   function chime(kind) {
     if (!state.sounds || quiet()) return;
+    var ov = sfxMap()[kind]; if (ov && ov.d) { playOverride(kind, ov); return; }
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -944,7 +953,7 @@
   var TABS = [['profile', 'user-round', 'My profile'], ['voice', 'mic', 'Voice & Video'], ['notify', 'bell', 'Notifications'], ['look', 'palette', 'Appearance'], ['tools', 'wrench', 'Prototype tools'], ['about', 'info', 'About']];
   function tabList() {
     var t = TABS.filter(function (x) { return !(x[0] === 'tools' && C.config && C.config.backend === 'live'); });
-    if (S.isOwner()) { t.splice(4, 0, ['library', 'sparkles', 'Library']); t.splice(5, 0, ['invite', 'user-plus', 'Invite a friend']); }
+    if (S.isOwner()) { t.splice(4, 0, ['library', 'sparkles', 'Library']); t.splice(5, 0, ['invite', 'user-plus', 'Invite a friend']); t.splice(6, 0, ['sounds', 'volume-2', 'Sounds']); }
     return t;
   }
   function selectOpen() { return !!document.querySelector('.select-list:not([hidden])'); }
@@ -1053,6 +1062,32 @@
       repaintAbout();
     });
   }
+  /* Settings > Sounds (owner only): audition your own files for each app sound. */
+  function soundsHTML() {
+    var map = sfxMap();
+    return '<h2>Sounds</h2><p class="sfx-note">Try your own sound files for each moment in the app. They are kept on this computer only, so nobody else hears them. Short clips work best (under 1 second for pings, 3 seconds at most). MP3, OGG or WAV, up to 400 KB. Tell me which ones you like and I’ll make them the default for everyone.</p>' +
+      '<ul class="sfx-list">' + SFX_EVENTS.map(function (e) {
+        var o = map[e[0]];
+        return '<li class="sfx-row"><div class="sfx-text"><b>' + esc(e[1]) + '</b><span>' + (o ? esc(o.n) : (e[0] === 'confetti' || e[0] === 'fireworks' || e[0] === 'hearts' ? 'Silent' : 'Built-in tone')) + '</span></div>' +
+          '<button class="btn-pill quiet sm" data-action="sfx-play" data-k="' + e[0] + '" aria-label="Play ' + esc(e[1]) + '">' + ico('volume-2', 'sm') + 'Play</button>' +
+          '<button class="btn-pill quiet sm" data-action="sfx-pick" data-k="' + e[0] + '">' + (o ? 'Change' : 'Choose file') + '</button>' +
+          (o ? '<button class="btn-pill quiet sm" data-action="sfx-reset" data-k="' + e[0] + '">Reset</button>' : '') + '</li>';
+      }).join('') + '</ul><p class="sfx-msg" id="sfx-msg" role="status"></p>';
+  }
+  function sfxRepaint(msg) { var pane = document.getElementById('set-pane'); if (pane) { pane.innerHTML = soundsHTML(); var m = document.getElementById('sfx-msg'); if (m && msg) m.textContent = msg; } }
+  function sfxPick(kind) {
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*';
+    inp.onchange = function () {
+      var f = inp.files && inp.files[0]; if (!f) return;
+      if (f.size > 400 * 1024) { sfxRepaint('That file is over 400 KB. Try a shorter clip.'); return; }
+      var fr = new FileReader(); fr.onload = function () {
+        var m = sfxMap(); m[kind] = { n: f.name.slice(0, 40), d: fr.result };
+        if (!sfxSave(m)) { sfxRepaint('Couldn’t keep that file. Try a smaller one, or reset another sound first.'); return; }
+        sfxRepaint(''); playOverride(kind, m[kind]);
+      }; fr.readAsDataURL(f);
+    };
+    inp.click();
+  }
   function aboutHTML() {
     var v = C.version, log = C.changelog || [];
     var date = function (d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); };
@@ -1065,6 +1100,7 @@
     var me = S.getCurrentUser();
     if (tab === 'invite' && S.isOwner() && C.ui.inviteHTML) return C.ui.inviteHTML();
     if (tab === 'library' && S.isOwner()) return libraryHTML();
+    if (tab === 'sounds' && S.isOwner()) return soundsHTML();
     if (tab === 'about') return aboutHTML();
     if (tab === 'profile') {
       return '<h2>My profile</h2><div class="set-section"><div class="avatar-row">' + avatar(me, 84) +
@@ -1734,6 +1770,9 @@
       case 'ag-pick': agPick(+t.dataset.i); break;
       case 'ag-close': closeAG(); break;
       case 'about-check': aboutCheck(); break;
+      case 'sfx-play': { var so = sfxMap()[t.dataset.k]; if (so) playOverride(t.dataset.k, so); else chime(t.dataset.k); break; }
+      case 'sfx-pick': sfxPick(t.dataset.k); break;
+      case 'sfx-reset': { var rm = sfxMap(); delete rm[t.dataset.k]; sfxSave(rm); sfxRepaint(''); break; }
       case 'ring-pick': { var rg = RINGS[+t.dataset.i]; S.updateProfile({ c1: rg[0], c2: rg[1] }).then(function () { refreshSettingsAvatar(); refreshAvatarEverywhere(); }); break; }
       case 'crop-cancel': closeCrop(); break;
       case 'crop-save': saveCrop(); break;

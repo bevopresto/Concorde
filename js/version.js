@@ -1,3 +1,3 @@
 /* Update the number and date on every build. They show in the bottom-right corner of the app. */
 window.Concorde = window.Concorde || {};
-window.Concorde.version = { number: '0.21.4', date: '2026-11-09' };
+window.Concorde.version = { number: '0.21.5', date: '2026-11-09' };

@@ -1363,3 +1363,11 @@ a.row-item:hover, button.row-item:hover, a.row-item:focus-visible, button.row-it
 .ag-note { margin: 0; min-height: 18px; font-size: 13px; opacity: .75; }
 .about-upd { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
 .about-msg { font-size: 13px; opacity: .8; max-width: 320px; }
+
+/* Settings > Sounds (owner experiment) */
+.sfx-list { list-style: none; margin: 14px 0 0; padding: 0 44px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.sfx-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sfx-text { flex: 1 1 200px; display: flex; flex-direction: column; min-width: 0; }
+.sfx-text span { font-size: 13px; opacity: .7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sfx-msg { min-height: 20px; font-size: 13px; margin-top: 10px; }
+.sfx-note { font-size: 14px; line-height: 1.5; opacity: .8; }

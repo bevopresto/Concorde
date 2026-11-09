@@ -68,6 +68,7 @@
     names: ['confetti', 'fireworks', 'hearts'],
     play: function (name) {
       if (!EFFECTS[name] || calm()) return false;
+      try { if (C.ui && C.ui.chime) C.ui.chime(name); } catch (e) { /* sound is optional */ }
       ensure(); EFFECTS[name]();
       if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); }
       return true;
