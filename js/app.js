@@ -892,7 +892,7 @@
       html += acc('members', 'users', 'Members', c.members.length, c.members.map(function (id) {
         var p = person(id);
         return '<div class="member" data-person="' + id + '">' + avatar(p, 34, { dot: true }) + '<div><b>' + (id === 'you' ? esc(p.name) + ' (you)' : esc(p.name)) + '</b><span>' + statusLine(p) + '</span></div></div>';
-      }).join('') + '<button class="btn-pill quiet danger leave-btn" data-action="leave-group" data-id="' + c.id + '">' + ico('log-out', 'sm') + 'Leave group</button>');
+      }).join('') + '<button class="btn-pill quiet danger leave-btn" data-action="leave-group" data-id="' + c.id + '">' + ico('log-out', 'sm') + 'Leave group</button>' + (S.isOwner() ? '<button class="btn-pill quiet danger leave-btn" data-action="delete-group" data-id="' + c.id + '">' + ico('trash-2', 'sm') + 'Delete group for everyone</button>' : ''));
     }
     html += acc('media', 'image', 'Media', sh.media.length,
       sh.media.length ? '<div class="thumbs">' + sh.media.map(function (s) { return s && s.image ? (s.mid ? '<button class="thumb-btn" data-action="view-image" data-id="' + s.mid + '" data-i="' + (s.i || 0) + '" aria-label="View ' + esc(s.name || 'photo') + ' larger">' : '') + '<img class="scene" src="' + esc(s.image) + '" alt="' + esc(s.name || 'Shared photo') + '" style="object-fit:cover">' + (s.mid ? '</button>' : '') : scene(s, 100, 100); }).join('') + '</div>' : '<p class="empty" style="padding:8px 0">Photos shared here will appear in this space.</p>');
@@ -1836,7 +1836,7 @@
   });
   S.on('typing', syncTyping);
   S.on('ring', function () { if (state.screen === 'app') renderRing(); });
-  S.on('conversations', function () { if (state.screen === 'app') { renderList(); if ($('#me-card')) renderMe(); if ($('#chat-head') && currentConv()) renderHead(); } });
+  S.on('conversations', function () { if (state.screen === 'app' && state.convId && !currentConv() && state.conversations.length) { openConversation(state.conversations[0].id); } if (state.screen === 'app') { renderList(); if ($('#me-card')) renderMe(); if ($('#chat-head') && currentConv()) renderHead(); } });
   S.on('call', function (e) {
     if (state.screen === 'app' && e && e.joined && e.conversationId !== state.convId && (e.focus || /^(chiroben|plushpants|kid)$/.test(e.conversationId))) { chime('join'); openConversation(e.conversationId); return; }
     if (state.screen !== 'app' || e.conversationId !== state.convId) { renderList(); return; }

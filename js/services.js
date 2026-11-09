@@ -208,6 +208,14 @@
       emit('conversations');
       return wait(120).then(function () { return true; });
     },
+    /* Owner only: delete a group for everyone. */
+    deleteGroup: function (id) {
+      var c = conv(id); if (!c || c.type !== 'group') return Promise.resolve(false);
+      if (call && call.conversationId === id) C.services.leaveCall();
+      D.conversations.splice(D.conversations.indexOf(c), 1); delete D.messages[id];
+      emit('conversations');
+      return wait(120).then(function () { return true; });
+    },
     getShared: function (id) { return D.shared[id] || { media: [], files: [], links: [] }; },
     markRead: function (id) { var c = conv(id); if (c) { c.unread = 0; c.mention = false; emit('conversations'); } },
     setViewing: function (id) { viewing = id; },

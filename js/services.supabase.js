@@ -629,6 +629,17 @@
       delete msgs[id]; delete loaded[id]; emit('conversations'); return true;
     }).catch(function () { return false; });
   };
+  /* Owner only: delete a group for everyone. Best effort to clear its attached files first. */
+  S.deleteGroup = function (id) {
+    var c = conv(id); if (!c || c.type !== 'group' || !isOwnerFlag) return Promise.resolve(false);
+    var clean = sb.storage.from('attachments').list(id, { limit: 1000 }).then(function (r) {
+      var names = (r.data || []).map(function (f) { return id + '/' + f.name; });
+      return names.length ? sb.storage.from('attachments').remove(names) : null;
+    }).catch(function () { return null; });
+    return clean.then(function () { return sb.rpc('delete_group', { p_conv: id }); }).then(function (r) {
+      if (r.error || !r.data) return false; dropConv(id); return true;
+    }).catch(function () { return false; });
+  };
   var FORMER = { id: 'former', name: 'Former member', c1: '#b9b2cf', c2: '#8f87ad', status: 'invisible', avatar: null };
   function dropConv(id) {
     var c = conv(id); if (!c) return;

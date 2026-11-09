@@ -1356,8 +1356,8 @@ a.row-item:hover, button.row-item:hover, a.row-item:focus-visible, button.row-it
 /* GIF picker for profile and group pictures */
 .modal.ag { width: min(460px, 92vw); display: flex; flex-direction: column; gap: 12px; }
 .modal.ag h2 { margin: 0; }
-.ag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; height: 300px; overflow-y: auto; align-content: start; }
-.ag-grid button { aspect-ratio: 1; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: transparent; }
-.ag-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ag-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 110px; gap: 8px; height: 300px; overflow-y: auto; align-content: start; }
+.ag-grid button { position: relative; width: 100%; height: 110px; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: rgba(128,128,128,.15); }
+.ag-grid img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .ag-grid .gif-empty { grid-column: 1 / -1; }
 .ag-note { margin: 0; min-height: 18px; font-size: 13px; opacity: .75; }

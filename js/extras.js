@@ -80,6 +80,18 @@
       });
     } });
   }
+  function askDeleteGroup(id) {
+    var c = convById(id); if (!c || c.type !== 'group' || !S.isOwner()) return;
+    confirmBox({ title: 'Delete ' + c.name + ' for everyone?', body: 'The group and all of its messages, photos and files will be gone for every member. This can’t be undone.', yes: 'Delete group', onYes: function () {
+      var wasHere = st.convId === id;
+      S.deleteGroup(id).then(function (ok) {
+        if (!ok) { toast('Couldn’t delete the group. Try again.'); return; }
+        toast(c.name + ' was deleted');
+        if (wasHere) { var next = st.conversations[0]; if (next) U.openConversation(next.id); }
+        U.renderList();
+      });
+    } });
+  }
   function askHide(id) {
     var c = convById(id); if (!c || c.type !== 'direct') return;
     var name = person(c.with).name;
@@ -113,6 +125,7 @@
   A['toggle-pin'] = function () { togglePin(st.convId); };
   A['toggle-mute-chat'] = function () { toggleMuteChat(st.convId); };
   A['leave-group'] = function (t) { askLeave(t.dataset.id); };
+  A['delete-group'] = function (t) { askDeleteGroup(t.dataset.id); };
 
   /* ---------- Right-click menus ---------- */
   function convMenu(c) {
@@ -128,6 +141,7 @@
       items.push({ sep: true });
       items.push({ icon: 'pencil', label: 'Edit group', run: function () { U.openEdit(c.id); } });
       items.push({ icon: 'log-out', label: 'Leave group', danger: true, run: function () { askLeave(c.id); } });
+      if (S.isOwner()) items.push({ icon: 'trash-2', label: 'Delete group for everyone…', danger: true, run: function () { askDeleteGroup(c.id); } });
     } else {
       items.push({ sep: true });
       items.push({ icon: 'eye-off', label: 'Remove chat', run: function () { askHide(c.id); } });

@@ -772,3 +772,15 @@ do $$ begin
   begin alter publication supabase_realtime add table public.gif_library; exception when duplicate_object then null; when undefined_object then null; end;
   begin alter publication supabase_realtime add table public.sounds;      exception when duplicate_object then null; when undefined_object then null; end;
 end $$;
+
+-- ================================================================ delete a group for everyone (owner only)
+-- Removes the group, its members, messages, reactions and call records in one go (they all cascade).
+create or replace function public.delete_group(p_conv uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_owner() then return false; end if;
+  if not exists (select 1 from public.conversations c where c.id = p_conv and c.type = 'group') then return false; end if;
+  delete from public.conversations where id = p_conv;
+  return true;
+end $$;
+grant execute on function public.delete_group(uuid) to authenticated;

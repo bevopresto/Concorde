@@ -258,4 +258,18 @@ select t_as('00000000-0000-0000-0000-00000000000a');
 select t_assert((select count(*) from public.sounds) = 1 and (select count(*) from public.gif_library) = 1, 'a non-owner cannot delete them');
 reset role;
 
+-- delete a group (owner only)
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000b');
+select public.create_group('Doomed', array['00000000-0000-0000-0000-00000000000c'::uuid,'00000000-0000-0000-0000-00000000000a'::uuid], null, null) as dgrp \gset
+insert into public.messages (conversation_id, sender_id, type, text) values (:'dgrp', '00000000-0000-0000-0000-00000000000b', 'text', 'hi');
+select t_assert(public.delete_group(:'dgrp') = false, 'a non-owner cannot delete a group');
+select t_assert((select count(*) from public.conversations where id = :'dgrp') = 1, 'group still there after refused delete');
+select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert(public.delete_group(:'dgrp') = true, 'the owner can delete a group');
+reset role;
+select t_assert((select count(*) from public.conversations where id = :'dgrp') = 0 and (select count(*) from public.messages where conversation_id = :'dgrp') = 0 and (select count(*) from public.conversation_members where conversation_id = :'dgrp') = 0, 'group, members and messages are all gone');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert(public.delete_group((select id from public.conversations where type = 'direct' limit 1)) = false, 'delete_group refuses a one-to-one chat');
+reset role;
+
 \echo ALL-CHECKS-RAN
