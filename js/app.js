@@ -1031,10 +1031,27 @@
   }
   S.on('emoji', function () { paintLibrary(); });
   S.on('library', function () { paintLibrary(); });
+  /* Update check (installed app only). */
+  var updMsg = '', updBusy = false;
+  function updateRowHTML() {
+    if (!S.checkUpdateNow) return '';
+    var u = S.getUpdate ? S.getUpdate() : {}, msg = updMsg;
+    if (u.available) return '<div class="about-upd"><button class="btn-pill" data-action="update-now">' + ico('refresh-cw', 'sm') + 'Restart to update to ' + esc(u.version || 'the new version') + '</button></div>';
+    return '<div class="about-upd"><button class="btn-pill quiet" data-action="about-check"' + (updBusy ? ' disabled' : '') + '>' + ico('refresh-cw', 'sm') + (updBusy ? 'Checking…' : 'Check for updates') + '</button>' + (msg ? '<span class="about-msg" role="status">' + esc(msg) + '</span>' : '') + '</div>';
+  }
+  function repaintAbout() { var el = document.querySelector('.about-ver'); if (el) { var row = el.querySelector('.about-upd'); if (row) row.remove(); el.insertAdjacentHTML('beforeend', updateRowHTML()); } }
+  function aboutCheck() {
+    if (updBusy || !S.checkUpdateNow) return; updBusy = true; updMsg = ''; repaintAbout();
+    S.checkUpdateNow().then(function (res) {
+      var r = res.state; updBusy = false;
+      updMsg = r === 'error' && res.reason ? res.reason : { latest: 'You’re up to date.', downloading: 'Found a new version. Downloading it now. This button turns into a restart button when it’s ready.', ready: '', unavailable: 'Updates only work in the installed app.', error: 'Couldn’t check. Check your internet connection and try again.' }[r] || '';
+      repaintAbout();
+    });
+  }
   function aboutHTML() {
     var v = C.version, log = C.changelog || [];
     var date = function (d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); };
-    return '<h2>About</h2><div class="set-section about-ver"><strong>Concorde ' + esc(v.number) + '</strong><span>Released ' + esc(date(v.date)) + '</span></div>' +
+    return '<h2>About</h2><div class="set-section about-ver"><strong>Concorde ' + esc(v.number) + '</strong><span>Released ' + esc(date(v.date)) + '</span>' + updateRowHTML() + '</div>' +
       '<h3 class="lb-h">What’s new</h3><div class="changelog" tabindex="0" role="region" aria-label="Change log">' + log.map(function (e) {
         return '<section class="cl-entry"><h4>' + esc(e.v) + ' <span>' + esc(date(e.d)) + '</span></h4><ul>' + e.items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul></section>';
       }).join('') + '</div>';
@@ -1711,6 +1728,7 @@
       case 'ag-tab': if (ag) agTab(t.dataset.tab); break;
       case 'ag-pick': agPick(+t.dataset.i); break;
       case 'ag-close': closeAG(); break;
+      case 'about-check': aboutCheck(); break;
       case 'ring-pick': { var rg = RINGS[+t.dataset.i]; S.updateProfile({ c1: rg[0], c2: rg[1] }).then(function () { refreshSettingsAvatar(); refreshAvatarEverywhere(); }); break; }
       case 'crop-cancel': closeCrop(); break;
       case 'crop-save': saveCrop(); break;
@@ -1836,6 +1854,7 @@
   });
   S.on('typing', syncTyping);
   S.on('ring', function () { if (state.screen === 'app') renderRing(); });
+  S.on('update', function () { repaintAbout(); });
   S.on('conversations', function () { if (state.screen === 'app' && state.convId && !currentConv() && state.conversations.length) { openConversation(state.conversations[0].id); } if (state.screen === 'app') { renderList(); if ($('#me-card')) renderMe(); if ($('#chat-head') && currentConv()) renderHead(); } });
   S.on('call', function (e) {
     if (state.screen === 'app' && e && e.joined && e.conversationId !== state.convId && (e.focus || /^(chiroben|plushpants|kid)$/.test(e.conversationId))) { chime('join'); openConversation(e.conversationId); return; }

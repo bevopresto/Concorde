@@ -92,16 +92,30 @@ function createTray() {
 
 /* ---------- updates (installed app only; it checks the GitHub release page) ---------- */
 let autoUpdater = null;
+let lastUpdateError = '';
+/* Turn an update error into one plain sentence. Keeps the real reason so we can fix it. */
+function reasonOf(e) {
+  const m = String((e && (e.message || e)) || 'unknown error').replace(/\s+/g, ' ');
+  const code = (m.match(/\b(40[0-9]|50[0-9])\b/) || [])[1];
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ENETUNREACH|EAI_AGAIN|net::ERR_(INTERNET|NAME|CONNECTION)/i.test(m)) return 'Couldn’t reach GitHub. Check your internet connection and try again.';
+  if (code === '404') return 'The update files aren’t on GitHub yet (error 404). It may still be publishing. Try again in a few minutes.';
+  if (code && code[0] === '5') return 'GitHub had a temporary problem (error ' + code + '). Try again in a few minutes.';
+  if (code === '403' || code === '429') return 'GitHub is limiting requests right now (error ' + code + '). Try again in a few minutes.';
+  return 'Something went wrong: ' + m.slice(0, 140);
+}
 function setupUpdates() {
   if (!app.isPackaged) return;
   try { autoUpdater = require('electron-updater').autoUpdater; } catch (e) { return; }
   autoUpdater.autoDownload = true; autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('update-downloaded', (info) => { update = { available: true, version: info.version, installing: false }; endManual(); if (manual === false) { /* quiet */ } pushUpdate(); refreshTray(); });
-  autoUpdater.on('error', () => { if (manual) tell('Couldn’t check for updates', 'Check your internet connection and try again.'); endManual(); });
+  autoUpdater.on('error', (e) => { lastUpdateError = reasonOf(e); if (manual) tell('Couldn’t check for updates', lastUpdateError); endManual(); });
   autoUpdater.on('update-available', (info) => { if (manual) tell('Update found', 'Downloading v' + info.version + '. The tray menu will offer a restart when it’s ready.'); });
   autoUpdater.on('update-not-available', () => { if (manual) tell('You’re up to date', 'Concorde v' + app.getVersion() + ' is the latest.'); endManual(); });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 12000); setInterval(check, 4 * 60 * 60 * 1000);
+  /* Check shortly after opening, every 30 minutes, and when you come back to the window (at most every 5 minutes). */
+  let lastCheck = 0; const checkSoon = () => { if (Date.now() - lastCheck > 5 * 60 * 1000) { lastCheck = Date.now(); check(); } };
+  setTimeout(checkSoon, 12000); setInterval(() => { lastCheck = Date.now(); check(); }, 30 * 60 * 1000);
+  app.on('browser-window-focus', checkSoon);
 }
 /* "Check for updates" in the tray menu: asks now, and says what it found. */
 let manual = false;
@@ -111,7 +125,7 @@ function manualCheck() {
   if (!autoUpdater) { tell('Updates', 'Updates only work in the installed app.'); return; }
   if (update.available) { tell('Update ready', 'Use “Restart to update” in this menu.'); return; }
   manual = true; update.checking = true; refreshTray();
-  autoUpdater.checkForUpdates().catch(() => { tell('Couldn’t check for updates', 'Check your internet connection and try again.'); endManual(); });
+  autoUpdater.checkForUpdates().catch((e) => { tell('Couldn’t check for updates', reasonOf(e)); endManual(); });
   setTimeout(() => { if (manual) { endManual(); } }, 60000);
 }
 function pushUpdate() { if (win && !win.isDestroyed()) win.webContents.send('desktop:update', update); }
@@ -129,7 +143,16 @@ ipcMain.on('desktop:quit', () => { quitting = true; app.quit(); });
 ipcMain.handle('desktop:is-max', () => !!(win && win.isMaximized()));
 ipcMain.handle('desktop:version', () => app.getVersion());
 ipcMain.handle('desktop:get-update', () => update);
-ipcMain.handle('desktop:check-update', async () => { if (!autoUpdater) return update; try { await autoUpdater.checkForUpdates(); } catch (e) { /* ignore */ } return update; });
+ipcMain.handle('desktop:check-update', async () => {
+  if (!autoUpdater) return { ...update, state: 'unavailable' };
+  if (update.available) return { ...update, state: 'ready' };
+  try {
+    const r = await autoUpdater.checkForUpdates();
+    if (update.available) return { ...update, state: 'ready' };
+    if (r && r.isUpdateAvailable) return { ...update, state: 'downloading', version: r.updateInfo && r.updateInfo.version };
+    return { ...update, state: 'latest' };
+  } catch (e) { return { ...update, state: 'error', reason: reasonOf(e) }; }
+});
 ipcMain.on('desktop:install-update', installNow);
 ipcMain.on('desktop:state', (_e, s) => {
   const next = { status: String(s.status || 'online'), muted: !!s.muted, unread: Math.max(0, s.unread | 0), mention: !!s.mention };

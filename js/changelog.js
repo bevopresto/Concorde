@@ -2,6 +2,10 @@
    Keep the wording friendly: this is for friends, not developers. */
 window.Concorde = window.Concorde || {};
 window.Concorde.changelog = [
+  { v: '0.21.3', d: '2026-11-09', items: [
+    'New: a “Check for updates” button at the top of this About page.',
+    'Better: Concorde now looks for updates every 30 minutes and when you come back to the window, instead of every 4 hours.',
+    'Better: when an update check fails, the message now says what actually went wrong instead of always blaming your internet.' ] },
   { v: '0.21.2', d: '2026-11-09', items: [
     'New: the group owner can delete a group for everyone, from the group’s right-click menu or its details panel.',
     'Fixed: GIFs in the “Choose a GIF” picture picker no longer pile on top of each other.' ] },

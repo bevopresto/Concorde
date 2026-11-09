@@ -28,6 +28,7 @@
   S.getUpdate = function () { return JSON.parse(JSON.stringify(upd)); };
   S.installUpdate = function () { D.installUpdate(); return Promise.resolve(null); };
   function setUpd(u) { upd = { available: !!u.available, version: u.version || null, installing: !!u.installing }; if (emit) emit('update', S.getUpdate()); }
+  S.checkUpdateNow = function () { return D.checkUpdate().then(function (r) { return { state: (r && r.state) || 'error', reason: r && r.reason }; }).catch(function () { return { state: 'error' }; }); };
   D.onUpdate(setUpd); D.getUpdate().then(setUpd);
   A['update-now'] = function () { S.installUpdate(); };
 
