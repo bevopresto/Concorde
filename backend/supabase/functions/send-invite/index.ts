@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
     await mail.sendMail({
       from: Deno.env.get('SMTP_FROM'), to: invite.email,
       subject: `${from} invited you to Concorde`,
-      text: `${from} invited you to Concorde, a small private place to chat and call.\n\n${Deno.env.get('APP_URL') ? 'Get the app: ' + Deno.env.get('APP_URL') + '\n\n' : ''}Your invite code: ${invite.code}\n\nOpen Concorde, sign in with this email address (${invite.email}), and enter the code when asked. It works once and expires in 14 days.`,
+      text: `${from} invited you to Concorde, a small private place to chat and call.\n\n${Deno.env.get('APP_URL') ? 'Get the app: ' + Deno.env.get('APP_URL') + '\n\n' : ''}Open Concorde and sign in with this email address (${invite.email}). Concorde will email you a 6-digit sign-in code; type that in, choose your name, and you're in. You don't need to type any other code.\n\nIf the app ever does ask for an invite code, use this one: ${invite.code}\nIt works once and expires in 14 days.`,
     });
   } catch (_e) {
     return json({ error: 'email_failed', message: "The invite was made, but the email couldn't be sent. Try Resend in a minute." }, 502);

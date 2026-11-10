@@ -122,6 +122,23 @@ select public.revoke_invite(:'code2');
 reset role; insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000010', 'later@x.com'); set role authenticated;
 select t_as('00000000-0000-0000-0000-000000000010');
 select t_expect_fail(format('select public.redeem_invite(%L, %L)', :'code2', 'Later'), 'bad_code');
+select public.my_pending_invite() as revoked_not_pending;   -- expect f
+-- emailed invite is recognised without typing the code
+select t_as('00000000-0000-0000-0000-00000000000a');
+select (public.create_invite('auto@x.com')).code as code3 \gset
+reset role;
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000011', 'auto@x.com'), ('00000000-0000-0000-0000-000000000012', 'stranger@x.com');
+set role authenticated;
+select t_as('00000000-0000-0000-0000-000000000012');
+select public.my_pending_invite() as stranger_pending;     -- expect f
+select t_expect_fail($$select public.redeem_invite('', 'Stranger')$$, 'bad_code');
+select t_as('00000000-0000-0000-0000-000000000011');
+select public.my_pending_invite() as auto_pending;          -- expect t
+select (public.redeem_invite('', 'Auto')).name as auto_name;
+reset role;
+select used_by = '00000000-0000-0000-0000-000000000011' as auto_marked_used from public.invites where code = :'code3';
+set role authenticated;
+select public.my_pending_invite() as auto_after;            -- expect f
 
 -- ---- calls (v0.13): join, heartbeat reaping, rings
 reset role;
@@ -301,5 +318,56 @@ select public.create_group('Closed', array['00000000-0000-0000-0000-00000000000e
 set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
 select t_assert(public.add_group_members(:'cgrp', array['00000000-0000-0000-0000-00000000000a'::uuid]) = 0, 'a non-member cannot add people');
 reset role;
+
+-- ---- file bin (v0.21.6)
+reset role;
+select id as fdm from public.conversations where type = 'direct' order by created_at limit 1 \gset
+insert into public.messages (conversation_id, sender_id, type, payload) values (:'fdm'::uuid, '00000000-0000-0000-0000-00000000000a', 'image', jsonb_build_object('images', jsonb_build_array(jsonb_build_object('path', :'fdm' || '/p1.jpg'), jsonb_build_object('path', :'fdm' || '/p2.jpg')))) returning id as imsg \gset
+insert into public.messages (conversation_id, sender_id, type, payload) values (:'fdm'::uuid, '00000000-0000-0000-0000-00000000000a', 'file', jsonb_build_object('file', jsonb_build_object('path', :'fdm' || '/doc.pdf'))) returning id as fmsg \gset
+insert into public.messages (conversation_id, sender_id, type, payload) values (:'fdm'::uuid, '00000000-0000-0000-0000-00000000000a', 'image', jsonb_build_object('images', jsonb_build_array(jsonb_build_object('path', :'fdm' || '/keep.jpg'))));
+insert into storage.objects (bucket_id, name) values ('attachments', :'fdm' || '/p1.jpg'), ('attachments', :'fdm' || '/p2.jpg'), ('attachments', :'fdm' || '/doc.pdf'), ('attachments', :'fdm' || '/keep.jpg');
+delete from public.file_trash;
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+update public.messages set deleted_at = now() where id = :'imsg';
+reset role;
+select t_assert((select count(*) from public.file_trash) = 2, 'soft delete bins both photos');
+select t_assert((select deleted_at is not null from public.messages where id = :'imsg'::uuid), 'soft delete really marks the message deleted');
+update public.messages set deleted_at = now() - interval '2 hours' where id = :'fmsg';
+select public.purge_deleted_messages();
+select t_assert((select count(*) from public.file_trash) = 3, 'purged message bins its file');
+select t_assert(not exists (select 1 from public.file_trash where path like '%keep.jpg'), 'a live attachment is never binned');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000b');
+select t_assert(array_length(public.files_to_sweep(50), 1) = 3, 'the app sees 3 files to sweep');
+with d as (delete from storage.objects where bucket_id = 'attachments' and name = :'fdm' || '/keep.jpg' returning 1) select t_assert((select count(*) from d) = 0, 'an app cannot delete a live file');
+select t_assert(public.files_swept(array[:'fdm' || '/p1.jpg']) = 0, 'bin keeps a file that still exists');
+with d as (delete from storage.objects where bucket_id = 'attachments' and name = any(public.files_to_sweep(50)) returning 1) select t_assert((select count(*) from d) = 3, 'an app can delete binned files');
+select t_assert(public.files_swept(public.files_to_sweep(50)) = 3, 'bin is cleared once the files are gone');
+select t_assert(array_length(public.files_to_sweep(50), 1) is null, 'bin is empty after sweep');
+reset role;
+-- one-off tidy-up: an old orphan is binned, a referenced one is not
+insert into storage.objects (bucket_id, name, created_at) values ('attachments', :'fdm' || '/orphan.jpg', now() - interval '3 days'), ('attachments', :'fdm' || '/new-orphan.jpg', now());
+insert into public.file_trash (path)
+select o.name from storage.objects o where o.bucket_id = 'attachments' and o.created_at < now() - interval '1 day'
+  and not exists (select 1 from public.messages m where m.payload->'file'->>'path' = o.name)
+  and not exists (select 1 from public.messages m, jsonb_array_elements(case when jsonb_typeof(m.payload->'images') = 'array' then m.payload->'images' else '[]'::jsonb end) i where i->>'path' = o.name)
+on conflict do nothing;
+select t_assert((select count(*) from public.file_trash) = 1 and exists (select 1 from public.file_trash where path like '%/orphan.jpg'), 'tidy-up bins only old unreferenced files');
+
+-- ---- unsend (v0.21.6)
+reset role;
+select id as udm from public.conversations where type = 'direct' order by created_at limit 1 \gset
+insert into public.messages (conversation_id, sender_id, type, text) values (:'udm'::uuid, '00000000-0000-0000-0000-00000000000a', 'text', 'fresh') returning id as umsg \gset
+insert into public.messages (conversation_id, sender_id, type, text, created_at) values (:'udm'::uuid, '00000000-0000-0000-0000-00000000000a', 'text', 'old', now() - interval '30 minutes') returning id as uold \gset
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000b');
+select t_assert(public.unsend_message(:'umsg'::uuid) = false, 'only the sender can unsend');
+select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert(public.unsend_message(:'uold'::uuid) = false, 'too old to unsend');
+select t_assert(public.unsend_message(:'umsg'::uuid) = true, 'sender can unsend a fresh message');
+select t_assert(public.unsend_message(:'umsg'::uuid) = false, 'cannot unsend twice');
+reset role;
+select t_assert((select deleted_at < now() - interval '1 hour' from public.messages where id = :'umsg'::uuid), 'unsent message is marked long ago, so apps hide it');
+select public.purge_deleted_messages();
+select t_assert(not exists (select 1 from public.messages where id = :'umsg'::uuid), 'purge removes it for good');
+select t_assert(exists (select 1 from public.messages where id = :'uold'::uuid), 'other messages stay');
 
 \echo ALL-CHECKS-RAN

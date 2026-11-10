@@ -162,9 +162,10 @@
       btn = ico('plane', 'sm') + 'Continue';
       foot = '<button type="button" class="link-btn" data-action="si-resend">Send a new code</button> · <button type="button" class="link-btn" data-action="si-back">Use a different email</button><br>This is a preview. Any 6 digits work; 000000 shows the error.';
     } else {
-      h = 'One more thing'; lead = 'You are new here. Choose a name and enter the invite code your friends sent you.';
+      h = 'One more thing';
+      lead = st.invited ? 'You have been invited. Just choose the name your friends will see.' : 'You are new here. Choose a name and enter the invite code your friends sent you.';
       fields = '<label for="si-name">Your name<span class="field"><input id="si-name" type="text" placeholder="How friends will see you" autocomplete="off"></span></label>' +
-        '<label for="si-code">Invite code<span class="field"><input id="si-code" class="code" type="text" placeholder="CNC-2026" autocomplete="off"></span></label>';
+        (st.invited ? '' : '<label for="si-code">Invite code<span class="field"><input id="si-code" class="code" type="text" placeholder="CNC-2026" autocomplete="off"></span></label>');
       btn = ico('plane', 'sm') + 'Board';
       foot = '<button type="button" class="link-btn" data-action="si-back">Start again</button><br>This is a preview. Leave the code empty, or type WRONG, to see the errors.';
     }
@@ -1858,12 +1859,19 @@
         function (e) { siBusy(false); siError(e, '#si-email'); });
     } else if (st.step === 'code') {
       siBusy(true, 'Checking…');
-      S.verifyCode(st.email, $('#si-otp').value).then(function (r) { if (r && r.isNew) { st.step = 'join'; renderSignIn(); } else enterApp(); },
+      S.verifyCode(st.email, $('#si-otp').value).then(function (r) { if (r && r.isNew) { st.step = 'join'; st.invited = !!r.invited; renderSignIn(); } else enterApp(); },
         function (e) { siBusy(false); siError(e, '#si-otp'); });
     } else {
       siBusy(true, 'Joining…');
-      S.joinWithInvite({ name: $('#si-name').value, inviteCode: $('#si-code').value }).then(enterApp,
-        function (e) { siBusy(false); siError(e, e && (e.code === 'no-name') ? '#si-name' : '#si-code'); });
+      var codeBox = $('#si-code');
+      S.joinWithInvite({ name: $('#si-name').value, inviteCode: codeBox ? codeBox.value : '', invited: !!st.invited }).then(enterApp,
+        function (e) {
+          if (st.invited && e && e.code === 'bad-invite') {   /* the emailed invite ran out or was cancelled: fall back to asking for a code */
+            var nm = $('#si-name').value; st.invited = false; renderSignIn(); $('#si-name').value = nm;
+            siError({ message: 'That invite is no longer valid. Enter an invite code from your friends instead.' }, '#si-code'); return;
+          }
+          siBusy(false); siError(e, e && (e.code === 'no-name') ? '#si-name' : '#si-code');
+        });
     }
   });
 

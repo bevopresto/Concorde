@@ -254,7 +254,15 @@ begin
   if exists (select 1 from public.profiles where lower(name) = lower(p_name)) then raise exception 'name_taken'; end if;
   select not exists (select 1 from public.profiles) into first_user;
   if not first_user then
-    select * into inv from public.invites where code = upper(btrim(p_code)) for update;
+    if btrim(coalesce(p_code, '')) = '' then
+      -- No code typed: use the invite that was emailed to this address, if there is one.
+      select * into inv from public.invites
+       where email is not null and lower(email) = lower(coalesce((select email from auth.users where id = uid), ''))
+         and revoked_at is null and uses < max_uses and (expires_at is null or expires_at > now())
+       order by created_at desc limit 1 for update;
+    else
+      select * into inv from public.invites where code = upper(btrim(p_code)) for update;
+    end if;
     if not found or inv.revoked_at is not null or inv.uses >= inv.max_uses or (inv.expires_at is not null and inv.expires_at < now()) then raise exception 'bad_code'; end if;
     -- An email-bound invite only works for the address it was sent to.
     if inv.email is not null and lower(inv.email) <> lower(coalesce((select email from auth.users where id = uid), '')) then raise exception 'bad_code'; end if;
@@ -265,6 +273,14 @@ begin
   if inv.code is not null then update public.invites set used_by = uid, used_at = now() where code = inv.code; end if;
   return prof;
 end $$;
+
+-- Does the signed-in person have an unused invite emailed to them? The sign-in screen uses this to skip the code box.
+create or replace function public.my_pending_invite() returns boolean
+language sql security definer stable set search_path = public as $$
+  select exists (select 1 from public.invites i
+    where i.email is not null and lower(i.email) = lower(coalesce((select email from auth.users where id = auth.uid()), ''))
+      and i.revoked_at is null and i.uses < i.max_uses and (i.expires_at is null or i.expires_at > now()));
+$$;
 
 -- Owner only: make a one-time invite for one email address. The send-invite edge function emails the code.
 create or replace function public.create_invite(p_email text)
@@ -829,3 +845,82 @@ begin
 end $$;
 grant execute on function public.add_group_members(uuid, uuid[]) to authenticated;
 
+
+-- ================================================================ clean up files of deleted messages
+-- When a message is deleted (or its whole chat is), the photos and files it carried are put in a "bin".
+-- Any signed-in app then empties the bin through the Storage service every half hour, so unused files
+-- do not sit in storage forever. (Storage files can only be removed through the Storage service, not by SQL.)
+create table if not exists public.file_trash (
+  path      text primary key,
+  queued_at timestamptz not null default now()
+);
+alter table public.file_trash enable row level security;      -- no policies: only the functions below can touch it
+
+create or replace function public.queue_message_files() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.file_trash (path)
+  select p from (
+    select i->>'path' as p
+      from jsonb_array_elements(case when jsonb_typeof(old.payload->'images') = 'array' then old.payload->'images' else '[]'::jsonb end) i
+    union all select old.payload->'file'->>'path'
+  ) x where p is not null on conflict do nothing;
+  if tg_op = 'DELETE' then return old; end if;   -- a BEFORE trigger must hand back the new row on UPDATE, or the update is silently dropped
+  return new;
+end $$;
+
+drop trigger if exists messages_queue_files_del on public.messages;
+create trigger messages_queue_files_del before delete on public.messages for each row execute function public.queue_message_files();
+drop trigger if exists messages_queue_files_soft on public.messages;
+create trigger messages_queue_files_soft before update of deleted_at on public.messages for each row
+  when (old.deleted_at is null and new.deleted_at is not null) execute function public.queue_message_files();
+
+-- Is this file in the bin? (the Storage rule below uses it, because the bin itself is private)
+create or replace function public.is_trashed(p_path text) returns boolean
+language sql security definer stable set search_path = public as $$ select exists (select 1 from public.file_trash where path = p_path) $$;
+
+drop policy if exists att_delete on storage.objects;
+create policy att_delete on storage.objects for delete to authenticated using (bucket_id = 'attachments' and public.is_trashed(name));
+
+create or replace function public.files_to_sweep(p_limit integer default 50) returns text[]
+language sql security definer stable set search_path = public as $$
+  select coalesce(array_agg(path), '{}'::text[]) from (select path from public.file_trash order by queued_at limit least(greatest(p_limit, 1), 200)) t
+$$;
+
+-- Take files off the bin once they are really gone from storage.
+create or replace function public.files_swept(p_paths text[]) returns integer
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  delete from public.file_trash t where t.path = any(p_paths)
+    and not exists (select 1 from storage.objects o where o.bucket_id = 'attachments' and o.name = t.path);
+  get diagnostics n = row_count; return n;
+end $$;
+revoke all on function public.files_to_sweep(integer), public.files_swept(text[]) from public, anon;
+grant execute on function public.files_to_sweep(integer), public.files_swept(text[]) to authenticated;
+
+-- One-off tidy-up of files left behind before this existed (deleted groups, purged messages).
+-- Only files older than a day that no message points to.
+insert into public.file_trash (path)
+select o.name from storage.objects o
+where o.bucket_id = 'attachments' and o.created_at < now() - interval '1 day'
+  and not exists (select 1 from public.messages m where m.payload->'file'->>'path' = o.name)
+  and not exists (select 1 from public.messages m, jsonb_array_elements(case when jsonb_typeof(m.payload->'images') = 'array' then m.payload->'images' else '[]'::jsonb end) i where i->>'path' = o.name)
+on conflict do nothing;
+
+-- ================================================================ unsend
+-- Take back a message you sent in the last 10 minutes. It vanishes for everyone with no "Message deleted" note.
+-- (It is marked deleted long ago, so apps hide it at once and the 15-minute purge removes it and its files.)
+create or replace function public.unsend_message(p_id uuid) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare n integer;
+begin
+  update public.messages set deleted_at = now() - interval '2 hours'
+   where id = p_id and sender_id = auth.uid() and deleted_at is null and type <> 'system'
+     and created_at > now() - interval '10 minutes';
+  get diagnostics n = row_count;
+  if n > 0 then delete from public.reactions where message_id = p_id; end if;
+  return n > 0;
+end $$;
+revoke all on function public.unsend_message(uuid) from public, anon;
+grant execute on function public.unsend_message(uuid) to authenticated;

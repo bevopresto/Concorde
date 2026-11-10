@@ -352,7 +352,7 @@
     return loadProfiles().then(function () { return Promise.all([loadConversations(), loadIdeas(true), loadInvites(), loadEmoji(), loadLibrary()]); }).then(function () {
       return Promise.all(hooks.boot.map(function (fn) { return fn(); })).catch(function () {});
     }).then(function () {
-      signedIn = true; subscribe(); startInvitePoll(); return true;
+      signedIn = true; subscribe(); startInvitePoll(); startSweep(); return true;
     });
   }
   /* ---------------------------------------------------------------- custom emoji (owner adds, everyone uses) */
@@ -481,7 +481,11 @@
     var token = String(code || '').replace(/\s/g, '');
     return sb.auth.verifyOtp({ email: String(email || '').trim(), token: token, type: 'email' }).then(function (r) {
       if (r.error || !r.data.session) throw fail('bad-code', 'That code didn’t match, or it has expired. Check the email and try again.');
-      return loadMyProfile().then(function (has) { return has ? bootData().then(function () { return { isNew: false }; }) : { isNew: true }; });
+      return loadMyProfile().then(function (has) {
+        if (has) return bootData().then(function () { return { isNew: false }; });
+        /* New person: if an invite was emailed to this address, they will not need to type a code. */
+        return sb.rpc('my_pending_invite').then(function (q) { return { isNew: true, invited: !q.error && q.data === true }; }, function () { return { isNew: true, invited: false }; });
+      });
     }).catch(function (e) { throw wrapErr(e); });
   };
   S.joinWithInvite = function (details) {
@@ -499,7 +503,7 @@
     }).catch(function (e) { throw wrapErr(e); });
   };
   S.signOut = function () {
-    unsubscribe(); stopInvitePoll();
+    unsubscribe(); stopInvitePoll(); stopSweep();
     return Promise.resolve(S.leaveCall()).catch(function () {}).then(function () { return sb.auth.signOut(); }).catch(function () {}).then(function () { clearAll(); emit('conversations'); });
   };
   S.setStatus = function (status) {
@@ -549,6 +553,21 @@
   }
   function startInvitePoll() { stopInvitePoll(); if (isOwnerFlag) invTimer = setInterval(loadInvites, 45000); }
   function stopInvitePoll() { clearInterval(invTimer); invTimer = null; }
+  /* Files from deleted messages wait in a server-side bin. Whoever is signed in empties it, a few at a time, so unused files don't pile up. */
+  var sweepTimer = null, sweepFirst = null;
+  function sweepFiles(round) {
+    if (!signedIn || !net.online) return Promise.resolve(0);
+    return sb.rpc('files_to_sweep', { p_limit: 50 }).then(function (r) {
+      var paths = (r && r.data) || [];
+      if (r.error || !paths.length) return 0;
+      return sb.storage.from('attachments').remove(paths).then(function () { return sb.rpc('files_swept', { p_paths: paths }); }).then(function () {
+        return (round || 0) < 6 && paths.length >= 50 ? sweepFiles((round || 0) + 1) : paths.length;
+      });
+    }).catch(function () { return 0; });
+  }
+  function startSweep() { stopSweep(); sweepFirst = setTimeout(function () { sweepFiles(0); }, 25000); sweepTimer = setInterval(function () { sweepFiles(0); }, 30 * 60 * 1000); }
+  function stopSweep() { clearTimeout(sweepFirst); clearInterval(sweepTimer); sweepTimer = sweepFirst = null; }
+  S.sweepFiles = function () { return sweepFiles(0); };
   S.listInvites = function () { return invites; };
   function callInviteFn(body) {
     if (!navigator.onLine) return Promise.reject(fail('offline', 'You are offline. Reconnect and try again.'));
@@ -823,6 +842,17 @@
     var m = (msgs[id] || []).filter(function (x) { return x.id === messageId && x.from === 'you'; })[0]; if (!m || m._local) return Promise.resolve(null);
     m.deleted = true; m.deletedAt = Date.now(); m.reactions = []; m.text = ''; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
     return sb.from('messages').update({ deleted_at: new Date().toISOString() }).eq('id', messageId).then(function () { return m; });
+  };
+  /* Unsend: for a few minutes after sending, a message can be taken back so it vanishes for everyone, with no note left behind. */
+  var UNSEND_MS = 10 * 60 * 1000;
+  S.canUnsend = function (m) { return !!(m && m.from === 'you' && !m.deleted && !m._local && !m.failed && m.type !== 'system' && m.createdAt && Date.now() - new Date(m.createdAt).getTime() < UNSEND_MS); };
+  S.unsendMessage = function (id, messageId) {
+    var m = (msgs[id] || []).filter(function (x) { return x.id === messageId; })[0]; if (!S.canUnsend(m)) return Promise.resolve(false);
+    return sb.rpc('unsend_message', { p_id: messageId }).then(function (r) {
+      if (r.error || !r.data) return false;
+      m.deleted = true; m.deletedAt = Date.now() - 2 * 3600 * 1000; m.reactions = []; m.text = '';
+      emit('message', { conversationId: id, message: m, updated: true }); emit('conversations'); return true;
+    }).catch(function () { return false; });
   };
   S.toggleReaction = function (id, messageId, emoji) {
     var m = (msgs[id] || []).filter(function (x) { return x.id === messageId; })[0]; if (!m || m._local) return Promise.resolve();

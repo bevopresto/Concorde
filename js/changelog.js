@@ -2,6 +2,11 @@
    Keep the wording friendly: this is for friends, not developers. */
 window.Concorde = window.Concorde || {};
 window.Concorde.changelog = [
+  { v: '0.21.6', d: '2026-11-10', items: [
+    'Better: if you were invited by email, signing in now recognises your invite, so you only pick a name. No second code to type.',
+    'New: turn a quiet friend up past 100%, to 300%. Right-click them in a call and choose Adjust volume.',
+    'New: “Unsend” in a message’s menu. For 10 minutes after you send something, you can take it back and it disappears for everyone, with no “Message deleted” note.',
+    'Behind the scenes: photos and files from deleted messages are now cleared out of storage too.' ] },
   { v: '0.21.5', d: '2026-11-09', items: [
     'Behind the scenes: a test panel for trying out new app sounds. Nothing changes for you yet.' ] },
   { v: '0.21.4', d: '2026-11-09', items: [

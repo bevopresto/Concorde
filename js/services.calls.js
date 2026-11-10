@@ -199,6 +199,7 @@
     putPref('dev.' + k + 'Id', id || '');
     if (k === 'cam' && previewStream) HW.preview();
     if (!room || !id) return Promise.resolve();
+    if (k === 'spk' && outCtx && outCtx.setSinkId) outCtx.setSinkId(id).catch(function () {});
     return room.switchActiveDevice(KINDS[k], id).catch(function () { toast('Couldn’t switch to that device.'); });
   };
   /* The saved choices, checked against what is plugged in now, as LiveKit room settings. */
@@ -261,8 +262,36 @@
   }
   HW.setInputVolume = function (v) { putPref('vol.inp', v); return applyInputVolume(); };
   /* One friend louder than the rest? Turn just them down. Percent, 0 to 100, remembered per person. */
-  function personVol(id) { var v = +pref('vol.p.' + id, 100); return isFinite(v) ? Math.max(0, Math.min(100, v)) : 100; }
-  function elVolume(el) { return Math.max(0, Math.min(1, outVolume() * personVol(el.dataset.pid || '') / 100)); }
+  /* Percent, 0 to 300 (above 100 is a boost for a quiet friend), remembered per person. */
+  var MAX_PERSON = 300;
+  function personVol(id) { var v = +pref('vol.p.' + id, 100); return isFinite(v) ? Math.max(0, Math.min(MAX_PERSON, v)) : 100; }
+  function elGain(el) { return outVolume() * personVol(el.dataset.pid || '') / 100; }
+  function elVolume(el) { return Math.max(0, Math.min(1, elGain(el))); }
+  /* A normal audio element cannot go louder than 100%. For a boost, that person's voice goes through a gain control
+     (with a limiter so it does not crackle), and the element itself is silenced so you do not hear it twice. */
+  var outCtx = null;
+  function boostCtx() {
+    if (!outCtx) {
+      outCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var sink = HW.chosen('spk'); if (sink && outCtx.setSinkId) outCtx.setSinkId(sink).catch(function () {});
+    }
+    if (outCtx.state === 'suspended') outCtx.resume().catch(function () {});
+    return outCtx;
+  }
+  function dropBoost(el) { var b = el._boost; if (!b) return; el._boost = null; try { b.src.disconnect(); b.gn.disconnect(); b.comp.disconnect(); } catch (e) { /* already gone */ } }
+  function applyEl(el) {
+    var g = elGain(el);
+    if (g <= 1 || !el.srcObject || !(window.AudioContext || window.webkitAudioContext)) { dropBoost(el); el.volume = Math.min(1, g); return; }
+    try {
+      var b = el._boost;
+      if (!b) {
+        var ctx = boostCtx(), src = ctx.createMediaStreamSource(el.srcObject), gn = ctx.createGain(), comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -10; comp.knee.value = 6; comp.ratio.value = 10; comp.attack.value = 0.003; comp.release.value = 0.2;
+        src.connect(gn); gn.connect(comp); comp.connect(ctx.destination); b = el._boost = { src: src, gn: gn, comp: comp };
+      }
+      b.gn.gain.value = g; el.volume = 0;
+    } catch (e) { dropBoost(el); el.volume = 1; }
+  }
   function outVolume() { return Math.max(0, Math.min(1, (+pref('vol.out', 70)) / 100)); }
   /* A short two-note chime through the chosen speaker at the current output volume, so you can hear what you're setting. */
   var pingUrl = null, lastPing = 0;
@@ -286,12 +315,12 @@
   };
   HW.setOutputVolume = function (v) {
     putPref('vol.out', v);
-    if (audioBox) audioBox.querySelectorAll('audio').forEach(function (a) { a.volume = elVolume(a); });
+    if (audioBox) audioBox.querySelectorAll('audio').forEach(applyEl);
   };
   S.getPersonVolume = personVol;
   S.setPersonVolume = function (id, pct) {
-    putPref('vol.p.' + id, Math.max(0, Math.min(100, Math.round(+pct))));
-    if (audioBox) audioBox.querySelectorAll('audio[data-pid="' + String(id).replace(/"/g, '') + '"]').forEach(function (a) { a.volume = elVolume(a); });
+    putPref('vol.p.' + id, Math.max(0, Math.min(MAX_PERSON, Math.round(+pct))));
+    if (audioBox) audioBox.querySelectorAll('audio[data-pid="' + String(id).replace(/"/g, '') + '"]').forEach(applyEl);
   };
   HW.setProfile = function (mode) {
     putPref('profileMode', mode);
@@ -345,11 +374,11 @@
     var E = LK.RoomEvent;
     function changed() { if (joinedConv === cid) announce(cid); }
     r.on(E.TrackSubscribed, function (track, pub, part) {
-      if (track.kind === 'audio') { var el = track.attach(); el.dataset.pid = (part && part.identity) || ''; el.volume = elVolume(el); ensureAudioBox().appendChild(el); }
+      if (track.kind === 'audio') { var el = track.attach(); el.dataset.pid = (part && part.identity) || ''; ensureAudioBox().appendChild(el); applyEl(el); }
       changed();
     });
     r.on(E.TrackUnsubscribed, function (track) {
-      if (track.kind === 'audio') track.detach().forEach(function (el) { el.remove(); });
+      if (track.kind === 'audio') track.detach().forEach(function (el) { dropBoost(el); el.remove(); });
       changed();
     });
     [E.TrackMuted, E.TrackUnmuted, E.LocalTrackPublished, E.ParticipantConnected, E.ParticipantDisconnected].forEach(function (ev) { r.on(ev, changed); });

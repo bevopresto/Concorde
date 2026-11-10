@@ -208,6 +208,7 @@
     if (m.from === 'you') {
       items.push({ sep: true });
       if (m.type === 'text') items.push({ icon: 'pencil', label: 'Edit', run: function () { startEdit(m.id); } });
+      if (S.canUnsend && S.canUnsend(m)) items.push({ icon: 'undo-2', label: 'Unsend', run: function () { S.unsendMessage(st.convId, m.id).then(function (ok) { toast(ok ? 'Message unsent' : 'Couldn’t unsend that. Try again.'); }); } });
       items.push({ icon: 'trash-2', label: 'Delete', danger: true, run: function () { S.deleteMessage(st.convId, m.id).then(function () { toast('Message deleted'); }); } });
     }
     return items;
@@ -223,7 +224,7 @@
   function inCallWith(id) {
     return st.conversations.some(function (c) { var k = S.getCall(c.id); return k && k.joined && k.participants.indexOf(id) !== -1; });
   }
-  /* A small slider for one person's volume, for the friend who is louder than the rest. Only turns them down, only for you. */
+  /* A small slider for one person's volume, for the friend who is louder than the rest. Turn them down, or boost a quiet friend past 100%. Only for you. */
   var pvol = null;
   function closeVol() { if (pvol) { pvol.remove(); pvol = null; document.removeEventListener('mousedown', onVolAway, true); document.removeEventListener('keydown', onVolKey, true); } }
   function onVolAway(e) { if (pvol && !pvol.contains(e.target)) closeVol(); }
@@ -232,8 +233,8 @@
     closeVol(); var p = person(id), v = S.getPersonVolume ? S.getPersonVolume(id) : 100;
     pvol = document.createElement('div'); pvol.className = 'pvol'; pvol.setAttribute('role', 'dialog'); pvol.setAttribute('aria-label', 'Volume for ' + p.name);
     pvol.innerHTML = '<div class="pvol-head">' + avatar(p, 30) + '<b>' + esc(p.name) + '</b><button class="btn-round sm" data-pvol-x aria-label="Close">' + ico('x', 'sm') + '</button></div>' +
-      '<label class="pvol-row"><span>' + ico('volume-2', 'sm') + '</span><input class="rng" type="range" min="0" max="100" value="' + v + '" aria-label="Volume for ' + esc(p.name) + '"><output>' + v + '%</output></label>' +
-      '<button class="btn-pill quiet pvol-reset" data-pvol-reset>Reset to 100%</button><p class="pvol-note">Only you hear this change. It is remembered for next time.</p>';
+      '<label class="pvol-row"><span>' + ico('volume-2', 'sm') + '</span><input class="rng" type="range" min="0" max="300" value="' + v + '" aria-label="Volume for ' + esc(p.name) + '"><output>' + v + '%</output></label>' +
+      '<button class="btn-pill quiet pvol-reset" data-pvol-reset>Reset to 100%</button><p class="pvol-note">Only you hear this change, and it is remembered for next time. Past 100% is a boost for a quiet voice. It also makes their background noise louder.</p>';
     document.body.appendChild(pvol);
     var w = pvol.offsetWidth, h = pvol.offsetHeight;
     pvol.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px'; pvol.style.top = Math.max(8, Math.min(y, window.innerHeight - h - 8)) + 'px';
@@ -837,7 +838,7 @@
         (pend ? '<span class="inv-acts"><button class="btn-pill quiet sm" data-action="invite-resend" data-id="' + i.id + '">Resend</button>' +
           '<button class="btn-pill quiet sm" data-action="invite-cancel" data-id="' + i.id + '">Cancel</button></span>' : '<span class="inv-acts"></span>') + '</li>';
     }).join('');
-    return '<h2>Invite a friend</h2><div class="set-section"><p class="pane-note">Type a friend\'s email. Concorde emails them a one-time code that only works for that address. When they first sign in, they enter it on the set-up screen.</p>' +
+    return '<h2>Invite a friend</h2><div class="set-section"><p class="pane-note">Type a friend\'s email. Concorde emails them a one-time code that only works for that address. When they first sign in with that email, Concorde recognises the invite by itself, so they only choose a name. The code is just a backup.</p>' +
       '<form id="inv-form" class="inv-form" novalidate><label class="field">' + ico('mail', 'sm') + '<input id="inv-email" type="email" placeholder="friend@example.com" autocomplete="off" aria-label="Friend\'s email"></label>' +
       '<button class="btn-pill" id="inv-go" type="submit">' + ico('send', 'sm') + 'Send invite</button></form><div id="inv-error-slot"></div></div>' +
       '<div class="set-section"><h3>Invites</h3>' + (rows ? '<ul class="inv-list">' + rows + '</ul>' : '<p class="pane-note">No invites yet. Once you send one, it shows up here.</p>') + '</div>';

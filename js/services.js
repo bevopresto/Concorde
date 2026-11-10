@@ -78,7 +78,7 @@
     getCurrentUser: function () { return me; },
     /* Signing in has three steps. 1) requestCode: an email with a 6-digit one-time code is sent. 2) verifyCode: the code is checked;
        the answer says whether this email already has an account. 3) New people only: joinWithInvite with a display name and an invite code.
-       Prototype: any 6 digits work, 000000 fails, and an email containing "new" is treated as a brand new person. */
+       Prototype: any 6 digits work, 000000 fails, and an email containing "new" is treated as a brand new person (add "invited" too to see the no-code path). */
     requestCode: function (email) {
       return wait(450).then(function () {
         if (!net.online) throw { code: 'offline', message: 'Concorde can\u2019t reach the server. Check your internet and try again.' };
@@ -91,7 +91,7 @@
         if (!net.online) throw { code: 'offline', message: 'Concorde can\u2019t reach the server. Check your internet and try again.' };
         var c = String(code || '').replace(/\s/g, '');
         if (!/^\d{6}$/.test(c) || c === '000000') throw { code: 'bad-code', message: 'That code didn\u2019t match, or it has expired. Check the email and try again.' };
-        return { isNew: /new/i.test(email) };
+        return { isNew: /new/i.test(email), invited: /invited/i.test(email) };
       });
     },
     joinWithInvite: function (details) {
@@ -99,7 +99,7 @@
         var name = String((details && details.name) || '').trim(), code = String((details && details.inviteCode) || '').trim().toUpperCase();
         if (!net.online) throw { code: 'offline', message: 'Concorde can\u2019t reach the server. Check your internet and try again.' };
         if (!name) throw { code: 'no-name', message: 'Choose the name your friends will see.' };
-        if (!code) throw { code: 'no-code', message: 'Enter the invite code your friends sent you.' };
+        if (!code && !(details && details.invited)) throw { code: 'no-code', message: 'Enter the invite code your friends sent you.' };
         if (code === 'WRONG') throw { code: 'bad-invite', message: 'That invite code didn\u2019t work. Check it with whoever invited you.' };
         me.name = name; return me;
       });
@@ -110,7 +110,7 @@
       me.status = status; emit('conversations'); return Promise.resolve(me);
     },
     getPersonVolume: function (id) { return +(U_store().get('vol.p.' + id, 100)); },
-    setPersonVolume: function (id, pct) { U_store().set('vol.p.' + id, Math.round(+pct)); },
+    setPersonVolume: function (id, pct) { U_store().set('vol.p.' + id, Math.max(0, Math.min(300, Math.round(+pct)))); },
     updateProfile: function (patch) {
       return wait(80).then(function () { Object.keys(patch).forEach(function (k) { me[k] = patch[k]; }); return me; });
     },
@@ -248,7 +248,7 @@
     sendMessage: function (id, payload) {
       var msg = {
         id: 'u' + (++uid), from: 'you', type: payload.type || 'text', text: payload.text || '',
-        time: nowLabel(), replyTo: payload.replyTo || null
+        time: nowLabel(), replyTo: payload.replyTo || null, _sentAt: Date.now()
       };
       ['scene', 'file', 'link', 'gif', 'image', 'images', 'name'].forEach(function (k) { if (payload[k]) msg[k] = payload[k]; });
       if (!net.online) msg.failed = true;
@@ -312,6 +312,14 @@
       if (!m) return Promise.resolve(null);
       m.deleted = true; m.deletedAt = Date.now(); m.reactions = []; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
       return Promise.resolve(m);
+    },
+    /* Unsend: within 10 minutes of sending, a message can be taken back with no note left behind. */
+    canUnsend: function (m) { return !!(m && m.from === 'you' && !m.deleted && !m.failed && m._sentAt && Date.now() - m._sentAt < 10 * 60 * 1000); },
+    unsendMessage: function (id, messageId) {
+      var list = D.messages[id] || [], m = list.filter(function (x) { return x.id === messageId; })[0];
+      if (!C.services.canUnsend(m)) return Promise.resolve(false);
+      m.deleted = true; m.deletedAt = Date.now() - 2 * 3600 * 1000; m.reactions = []; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
+      return Promise.resolve(true);
     },
     toggleReaction: function (id, messageId, emoji) {
       var list = D.messages[id] || [];
