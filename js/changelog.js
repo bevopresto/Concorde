@@ -2,9 +2,10 @@
    Keep the wording friendly: this is for friends, not developers. */
 window.Concorde = window.Concorde || {};
 window.Concorde.changelog = [
+  { v: '0.21.8', d: '2026-11-15', items: [
+    'New: My profile now shows what Concorde sees you playing and listening to right now, so you can check it.' ] },
   { v: '0.21.7', d: '2026-11-15', items: [
     'New: Settings → Activity. Optionally show the game you’re playing and the music you’re listening to, under your name. Both are off by default, and you choose what’s shared.',
-    'New: My profile now shows what Concorde sees you playing and listening to right now, so you can check it.',
     'Games Concorde doesn’t know can be added by name in the same place.' ] },
   { v: '0.21.6', d: '2026-11-10', items: [
     'Better: if you were invited by email, signing in now recognises your invite, so you only pick a name. No second code to type.',
