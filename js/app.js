@@ -31,7 +31,20 @@
     return a.g ? 'Playing ' + a.g : (a.m ? '\u266A ' + a.m : '');
   }
   function subText(p) { return activityText(p) || (p && p.note) || statusText(p && p.status); }
-  function statusLine(p) { return esc(subText(p)); }
+  /* A line that may be too long for its space: it slowly slides sideways so the whole thing can be read (see mqScan). */
+  function mq(t) { return '<span class="mq"><span class="mq-in">' + esc(t) + '</span></span>'; }
+  function statusLine(p) { return mq(subText(p)); }
+  var mqTimer = null;
+  function mqScan() {
+    var els = document.querySelectorAll('.mq');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i], inn = el.firstChild, d = el.scrollWidth - el.clientWidth;
+      if (d > 3) { inn.style.setProperty('--mq', -d + 'px'); inn.style.animationDuration = Math.round(8 + d / 14) + 's'; el.classList.add('scrolls'); }
+      else el.classList.remove('scrolls');
+    }
+  }
+  function mqSoon() { clearTimeout(mqTimer); mqTimer = setTimeout(mqScan, 120); }
+  try { new MutationObserver(mqSoon).observe(document.body, { childList: true, subtree: true }); window.addEventListener('resize', mqSoon); } catch (e) { /* older browser: text just stays cut off */ }
   function statusText(s) { return { online: 'Online', away: 'Away', dnd: 'Do not disturb', invisible: 'Appear offline' }[s] || 'Offline'; }
   function dotKey(s) { return s === 'invisible' || !s ? 'offline' : s; }
   function quiet() { return S.getCurrentUser().status === 'dnd'; }
@@ -221,7 +234,7 @@
       '<button data-action="filter" data-value="groups" aria-pressed="false">Groups</button></div>' +
       '<div class="chips" id="chips" role="group" aria-label="Search results type" hidden></div>' +
       '<nav class="conv-list" id="conv-list"></nav>' +
-      '<div class="me-card" id="me-card"></div></aside>' +
+      '<div class="me-now" id="me-now" hidden></div><div class="me-card" id="me-card"></div></aside>' +
       '<main class="card chat" aria-label="Conversation">' +
       '<header class="chat-head" id="chat-head"></header>' +
       '<div id="call-slot"></div>' +
@@ -244,8 +257,17 @@
   function renderMe() {
     var me = S.getCurrentUser();
     $('#me-card').innerHTML = '<button class="me-btn" data-action="status-open" aria-haspopup="menu" aria-label="Your status: ' + statusText(me.status) + '. Change status">' + avatar(me, 44, { dot: true }) +
-      '<span class="who"><b>' + esc(me.name) + '</b><span>' + statusLine(me) + '</span></span></button>' +
+      '<span class="who"><b>' + esc(me.name) + '</b><span>' + esc(me.note || statusText(me.status)) + '</span></span></button>' +
       '<button class="btn-round sm" data-action="settings-open" aria-label="Settings">' + ico('settings') + '</button>';
+    meNowPaint();
+  }
+  /* The tray above your card: the song and game you are sharing, with room to show the whole title. */
+  function meNowPaint() {
+    var t = document.getElementById('me-now'); if (!t) return;
+    var cur = C.activity && C.activity.current ? C.activity.current() : null, h = '';
+    if (cur && cur.music) h += '<div class="np-row">' + ico('music') + '<span>' + esc(cur.music) + '</span></div>';
+    if (cur && cur.game) h += '<div class="np-row">' + ico('gamepad-2') + '<span>' + esc(cur.game) + '</span></div>';
+    t.innerHTML = h; t.hidden = !h;
   }
 
   /* ---------- Search: type chips, then results grouped by kind ---------- */
@@ -358,7 +380,7 @@
     }
     var title = '<div class="chat-title"><div class="title-line"><h1>' + esc(e.name) + '</h1>' +
       (c.type === 'group' ? '<button class="icon-edit" data-action="edit-group" aria-label="Rename group or change its picture" title="Rename group or change picture">' + ico('pencil', 'sm') + '</button>' : '') +
-      '</div><p>' + esc(sub) + '</p></div>';
+      '</div><p>' + mq(sub) + '</p></div>';
     if (c.type === 'direct') {
       var busy = !!S.getRing() || !!(call && call.joined), dis = busy ? ' disabled' : '';
       title = '<div class="title-wrap">' + title + '<div class="head-calls">' +
@@ -913,7 +935,7 @@
     if (!currentConv()) return;
     var c = currentConv(), e = entity(c), sh = S.getShared(c.id), html;
     var sub = c.type === 'direct' ? subText(person(c.with)) : c.members.length + ' members';
-    html = '<div class="details-head">' + avatarFor(c, 92, false) + '<h2>' + esc(e.name) + '</h2><p>' + esc(sub) + '</p></div>';
+    html = '<div class="details-head">' + avatarFor(c, 92, false) + '<h2>' + esc(e.name) + '</h2><p>' + mq(sub) + '</p></div>';
     if (c.type === 'group') {
       html += acc('members', 'users', 'Members', c.members.length, c.members.map(function (id) {
         var p = person(id);
@@ -1124,7 +1146,7 @@
     function row(icon, txt, none) { return '<div class="np-row' + (txt ? '' : ' none') + '">' + ico(icon) + '<span>' + esc(txt || none) + '</span></div>'; }
     return row('music', m, 'No music detected') + row('gamepad-2', g, 'No game detected');
   }
-  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); var p = document.getElementById('now-playing'); if (p) p.innerHTML = nowPlayingHTML(); }
+  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); var p = document.getElementById('now-playing'); if (p) p.innerHTML = nowPlayingHTML(); meNowPaint(); }
   function actApply() { if (C.activity && C.activity.configure) C.activity.configure(); actRefresh(); }
   function aboutHTML() {
     var v = C.version, log = C.changelog || [];
@@ -1142,7 +1164,7 @@
     if (tab === 'about') return aboutHTML();
     if (tab === 'profile') {
       return '<h2>My profile</h2><div class="set-section"><div class="avatar-row">' + avatar(me, 84) +
-        '<div class="avatar-side"><button class="btn-pill quiet" data-action="change-avatar">' + ico('image', 'sm') + 'Change avatar</button><button class="btn-pill quiet" data-action="avatar-gif">' + ico('sparkles', 'sm') + 'Use a GIF</button>' +
+        '<div class="avatar-side"><div class="avatar-btns"><button class="btn-pill quiet" data-action="change-avatar">' + ico('image', 'sm') + 'Change avatar</button><button class="btn-pill quiet" data-action="avatar-gif">' + ico('sparkles', 'sm') + 'Use a GIF</button></div>' +
         '<div class="ring-pick" role="radiogroup" aria-label="Ring colour">' + RINGS.map(function (r, i) {
           var on = r[0] === me.c1 && r[1] === me.c2;
           return '<button type="button" class="ring-sw" role="radio" aria-checked="' + on + '" aria-label="' + r[2] + ' ring" title="' + r[2] + '" data-action="ring-pick" data-i="' + i + '" style="--c1:' + r[0] + ';--c2:' + r[1] + '"></button>';

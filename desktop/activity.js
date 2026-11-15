@@ -12,16 +12,17 @@ $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
 function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $t.Wait(-1) | Out-Null; $t.Result }
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 while ($true) {
-  $out = @{ playing = $false }
+  $out = @{ items = @() }
   try {
     $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+    $list = @()
     foreach ($s in $mgr.GetSessions()) {
       if ($s.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') {
         $p = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-        $out = @{ playing = $true; title = [string]$p.Title; artist = [string]$p.Artist; app = [string]$s.SourceAppUserModelId }
-        break
+        $list += @{ title = [string]$p.Title; artist = [string]$p.Artist; app = [string]$s.SourceAppUserModelId }
       }
     }
+    $out = @{ items = $list }
   } catch {}
   [Console]::Out.WriteLine(($out | ConvertTo-Json -Compress))
   Start-Sleep -Seconds 15
@@ -30,6 +31,19 @@ while ($true) {
 /* Web browsers report whatever tab is playing (including private videos), so they are never shown. */
 const BROWSERS = /chrome|msedge|edge|firefox|brave|opera|vivaldi|arc|iexplore/i;
 const clean = (s, n) => String(s || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+
+/* Of everything Windows says is playing, choose what to show: skip browsers and empty titles, and keep the same song while it is still playing. */
+function pickMusic(r, prev) {
+  const items = r && r.items ? [].concat(r.items) : (r && r.playing ? [r] : []);
+  const texts = [];
+  items.forEach((it) => {
+    if (!it || !it.title || BROWSERS.test(it.app || '')) return;
+    const t = clean(it.title, 70), a = clean(it.artist, 50);
+    if (t) texts.push(a ? t + ' – ' + a : t);
+  });
+  if (!texts.length) return null;
+  return texts.indexOf(prev) >= 0 ? prev : texts[0];
+}
 
 module.exports = function createActivity(onChange) {
   let cfg = { game: false, music: false, custom: [] };
@@ -77,11 +91,7 @@ module.exports = function createActivity(onChange) {
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i).replace(/^\uFEFF/, '').trim(); buf = buf.slice(i + 1);
         try {
-          const r = JSON.parse(line);
-          if (r && r.playing && r.title && !BROWSERS.test(r.app || '')) {
-            const t = clean(r.title, 70), a = clean(r.artist, 50);
-            state.music = a ? t + ' – ' + a : t;
-          } else state.music = null;
+          state.music = pickMusic(JSON.parse(line), state.music);
         } catch (e) { /* not a result line */ }
         emit();
       }
@@ -101,3 +111,4 @@ module.exports = function createActivity(onChange) {
   function stop() { dead = true; if (gameTimer) clearInterval(gameTimer); stopHelper(); }
   return { configure, stop, current: () => last };
 };
+module.exports.pickMusic = pickMusic;

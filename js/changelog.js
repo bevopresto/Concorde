@@ -2,6 +2,11 @@
    Keep the wording friendly: this is for friends, not developers. */
 window.Concorde = window.Concorde || {};
 window.Concorde.changelog = [
+  { v: '0.21.9', d: '2026-11-15', items: [
+    'Better: what you’re playing now sits in its own panel above your name card, with room for the whole song title. Your status message stays put.',
+    'Better: switching from one music app to another is picked up properly.',
+    'Better: a long song or status under someone’s name now slowly slides sideways so you can read all of it.',
+    'Tidier: Change avatar and Use a GIF sit side by side in My profile.' ] },
   { v: '0.21.8', d: '2026-11-15', items: [
     'New: My profile now shows what Concorde sees you playing and listening to right now, so you can check it.' ] },
   { v: '0.21.7', d: '2026-11-15', items: [
