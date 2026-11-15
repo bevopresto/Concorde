@@ -10,21 +10,33 @@
   function $(s, c) { return (c || document).querySelector(s); }
 
   /* ---------- Activity: what you are playing and listening to (off until turned on in Settings > Activity) ---------- */
-  var actNow = { game: null, music: null };
+  var actNow = { game: null, music: null }, actDiag = null, actConfigured = false;
   C.activity = {
     current: function () { return actNow; },
+    diag: function () { return actDiag; },
     configure: function () {
       var g = U.store.get('act.game', 'off') === 'on', m = U.store.get('act.music', 'off') === 'on', custom = [];
       try { custom = JSON.parse(U.store.get('act.custom', '[]')) || []; } catch (e) { custom = []; }
+      actConfigured = true;
       if (!g && !m) { actNow = { game: null, music: null }; S.setActivity && S.setActivity(null); }
       if (D.setActivity) D.setActivity({ game: g, music: m, custom: custom });
     }
   };
-  if (D.onActivity) D.onActivity(function (a) {
-    actNow = { game: (a && a.game) || null, music: (a && a.music) || null };
-    if (S.setActivity) S.setActivity(actNow);
-    if (U.actRefresh) U.actRefresh();
-  });
+  /* The desktop side tells us on every check; only act when something really changed. */
+  function actApply(a) {
+    if (!a) return;
+    var next = { game: a.game || null, music: a.music || null }, changed = next.game !== actNow.game || next.music !== actNow.music;
+    actDiag = a.diag || actDiag; actNow = next;
+    if (changed && S.setActivity) S.setActivity(actNow);
+    if ((changed || document.getElementById('act-now')) && U.actRefresh) U.actRefresh();
+  }
+  if (D.onActivity) D.onActivity(actApply);
+  /* Safety nets: set it up as soon as you are signed in even if that happened early, and ask for the latest every 20 seconds. */
+  setInterval(function () {
+    if (st.screen !== 'app') return;
+    if (!actConfigured) { C.activity.configure(); return; }
+    if (D.getActivity && (U.store.get('act.game', 'off') === 'on' || U.store.get('act.music', 'off') === 'on')) D.getActivity().then(actApply).catch(function () {});
+  }, 20000);
 
   /* ---------- Title bar buttons ---------- */
   A['win-min'] = function () { D.minimize(); };

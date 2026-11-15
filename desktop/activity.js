@@ -9,21 +9,24 @@ $ErrorActionPreference = 'SilentlyContinue'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation\`1' })[0]
-function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $t.Wait(-1) | Out-Null; $t.Result }
+function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); if (-not $t.Wait(4000)) { return $null }; $t.Result }
 [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime] | Out-Null
 while ($true) {
-  $out = @{ items = @() }
+  $out = @{ items = @(); seen = @(); err = '' }
   try {
     $mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
-    $list = @()
+    if ($mgr -eq $null) { throw 'Windows did not answer in time' }
+    $list = @(); $seen = @()
     foreach ($s in $mgr.GetSessions()) {
-      if ($s.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') {
+      $st = $s.GetPlaybackInfo().PlaybackStatus.ToString()
+      $seen += @{ app = [string]$s.SourceAppUserModelId; status = $st }
+      if ($st -eq 'Playing') {
         $p = Await ($s.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
-        $list += @{ title = [string]$p.Title; artist = [string]$p.Artist; app = [string]$s.SourceAppUserModelId }
+        if ($p -ne $null) { $list += @{ title = [string]$p.Title; artist = [string]$p.Artist; app = [string]$s.SourceAppUserModelId } }
       }
     }
-    $out = @{ items = $list }
-  } catch {}
+    $out = @{ items = $list; seen = $seen; err = '' }
+  } catch { $out = @{ items = @(); seen = @(); err = [string]$_.Exception.Message } }
   [Console]::Out.WriteLine(($out | ConvertTo-Json -Compress))
   Start-Sleep -Seconds 15
 }`;
@@ -47,12 +50,15 @@ function pickMusic(r, prev) {
 
 module.exports = function createActivity(onChange) {
   let cfg = { game: false, music: false, custom: [] };
-  let gameTimer = null, helper = null, last = { game: null, music: null }, dead = false;
+  let watchdog = null, lastLineAt = 0, gameTimer = null, helper = null, last = { game: null, music: null }, dead = false;
   const state = { game: null, music: null };
+  let diag = { music: 'not started', at: 0, seen: [], err: '' };
 
-  function emit() {
+  /* Tell the page. It is told on every check, not just on changes, so a page that was reloaded or hidden catches up by itself. */
+  function emit(force) {
     const next = { game: cfg.game ? state.game : null, music: cfg.music ? state.music : null };
-    if (next.game !== last.game || next.music !== last.music) { last = next; try { onChange(next); } catch (e) { /* page gone */ } }
+    last = next;
+    { try { onChange({ game: next.game, music: next.music, diag: diag }); } catch (e) { /* page gone */ } }
   }
 
   function customMap() {
@@ -84,21 +90,29 @@ module.exports = function createActivity(onChange) {
     if (helper || process.platform !== 'win32') return;
     const enc = Buffer.from(MUSIC_SCRIPT, 'utf16le').toString('base64');
     helper = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    let buf = '';
+    let buf = ''; lastLineAt = Date.now();
+    if (!watchdog) watchdog = setInterval(() => { if (helper && cfg.music && Date.now() - lastLineAt > 45000) { try { helper.kill(); } catch (e) { /* gone */ } } }, 15000);
     helper.stdout.setEncoding('utf8');
     helper.stdout.on('data', (d) => {
       buf += d; let i;
       while ((i = buf.indexOf('\n')) >= 0) {
+        lastLineAt = Date.now();
         const line = buf.slice(0, i).replace(/^\uFEFF/, '').trim(); buf = buf.slice(i + 1);
         try {
-          state.music = pickMusic(JSON.parse(line), state.music);
+          const r = JSON.parse(line);
+          state.music = pickMusic(r, state.music);
+          diag = { music: 'running', at: Date.now(), seen: (r.seen || []).slice(0, 8).map((x) => ({ app: clean(x.app, 60), status: clean(x.status, 12), hidden: BROWSERS.test(x.app || '') })), err: clean(r.err, 120) };
         } catch (e) { /* not a result line */ }
         emit();
       }
     });
-    helper.on('exit', () => { helper = null; state.music = null; emit(); });
+    helper.on('error', (e) => { diag = { music: 'could not start: ' + clean(e && e.message, 80), at: Date.now(), seen: [], err: '' }; });
+    helper.on('exit', (code) => {
+      helper = null; state.music = null; diag = { music: 'stopped (code ' + code + '), restarting', at: Date.now(), seen: [], err: '' }; emit();
+      if (cfg.music && !dead) setTimeout(() => { if (cfg.music && !dead) startHelper(); }, 5000);
+    });
   }
-  function stopHelper() { if (helper) { try { helper.kill(); } catch (e) { /* already gone */ } helper = null; } state.music = null; }
+  function stopHelper() { if (helper) { const h = helper; helper = null; try { h.kill(); } catch (e) { /* already gone */ } } state.music = null; diag = { music: 'off', at: 0, seen: [], err: '' }; }
 
   function configure(next) {
     cfg = { game: !!(next && next.game), music: !!(next && next.music), custom: (next && next.custom) || [] };
@@ -108,7 +122,7 @@ module.exports = function createActivity(onChange) {
     if (cfg.game && gameTimer) scanGames();
     emit();
   }
-  function stop() { dead = true; if (gameTimer) clearInterval(gameTimer); stopHelper(); }
-  return { configure, stop, current: () => last };
+  function stop() { dead = true; if (watchdog) clearInterval(watchdog); if (gameTimer) clearInterval(gameTimer); stopHelper(); }
+  return { configure, stop, push: () => emit(true), current: () => ({ game: last.game, music: last.music, diag: diag }) };
 };
 module.exports.pickMusic = pickMusic;

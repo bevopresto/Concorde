@@ -25,5 +25,6 @@ contextBridge.exposeInMainWorld('concordeDesktop', {
   pickedSource: (id) => ipcRenderer.send('desktop:picked-source', id || null),
   setActivity: (c) => ipcRenderer.send('desktop:activity-config', c),
   onActivity: (fn) => on('desktop:activity', fn),
+  getActivity: () => ipcRenderer.invoke('desktop:activity-get'),
   version: () => ipcRenderer.invoke('desktop:version')
 });

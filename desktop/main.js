@@ -45,6 +45,7 @@ function createWindow() {
   if (saved.max) win.maximize();
   win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
   win.loadURL(ORIGIN + '/index.html');
+  win.webContents.on('did-finish-load', () => { try { activity.push(); } catch (e) { /* not ready */ } });
   win.on('maximize', () => win.webContents.send('desktop:maximized', true));
   win.on('unmaximize', () => win.webContents.send('desktop:maximized', false));
   win.on('resize', saveBounds); win.on('move', saveBounds);
@@ -155,6 +156,7 @@ ipcMain.handle('desktop:version', () => app.getVersion());
 
 /* Activity: what this person is playing or listening to. Off until they turn it on in Settings > Activity. */
 const activity = require('./activity')((a) => { if (win && !win.isDestroyed()) win.webContents.send('desktop:activity', a); });
+ipcMain.handle('desktop:activity-get', () => activity.current());
 ipcMain.on('desktop:activity-config', (_e, c) => { try { activity.configure(c && typeof c === 'object' ? c : {}); } catch (e) { /* ignore a bad request */ } });
 ipcMain.handle('desktop:get-update', () => update);
 ipcMain.handle('desktop:check-update', async () => {

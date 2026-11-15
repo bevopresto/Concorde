@@ -1130,7 +1130,7 @@
       '<div class="set-section">' +
       switchRow('Show the game I’m playing', 'Concorde looks for well-known games running on this computer', 'toggle-act-game', store.get('act.game', 'off') === 'on') +
       switchRow('Show the music I’m listening to', 'Whatever Windows says is playing: Spotify, Plex, Roon, Apple Music. Web browsers are never shown.', 'toggle-act-music', store.get('act.music', 'off') === 'on') + '</div>' +
-      '<div class="set-section"><h3>What Concorde sees right now</h3><p class="pane-note" id="act-now">' + esc(nowTxt) + '</p></div>' +
+      '<div class="set-section"><h3>What Concorde sees right now</h3><p class="pane-note" id="act-now">' + esc(nowTxt) + '</p><p class="pane-note act-diag" id="act-diag">' + esc(actDiagText()) + '</p></div>' +
       '<div class="set-section"><h3>Add a game</h3><p class="pane-note">If one of your games isn’t recognised, add it here. The program name is the file you see in Task Manager, such as MyGame.exe.</p>' +
       '<div class="act-add"><span class="field"><input id="act-name" type="text" placeholder="Game name" maxlength="60" aria-label="Game name"></span><span class="field"><input id="act-exe" type="text" placeholder="MyGame.exe" maxlength="80" aria-label="Program name"></span><button class="btn-pill quiet sm" data-action="act-add">Add</button></div>' +
       (custom.length ? '<ul class="act-list">' + custom.map(function (c, i) { return '<li><span><b>' + esc(c.name) + '</b> <i>' + esc(c.exe) + '</i></span><button class="btn-pill quiet sm" data-action="act-remove" data-i="' + i + '">Remove</button></li>'; }).join('') + '</ul>' : '') + '</div>';
@@ -1146,7 +1146,17 @@
     function row(icon, txt, none) { return '<div class="np-row' + (txt ? '' : ' none') + '">' + ico(icon) + '<span>' + esc(txt || none) + '</span></div>'; }
     return row('music', m, 'No music detected') + row('gamepad-2', g, 'No game detected');
   }
-  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); var p = document.getElementById('now-playing'); if (p) p.innerHTML = nowPlayingHTML(); meNowPaint(); }
+  /* A plain-words look at what Windows reports, so it is easy to see where music is getting lost. */
+  function actDiagText() {
+    var d = C.activity && C.activity.diag ? C.activity.diag() : null;
+    if (!d || store.get('act.music', 'off') !== 'on') return '';
+    var t = 'Music reader: ' + d.music + (d.at ? ' (last check ' + new Date(d.at).toLocaleTimeString() + ')' : '') + '.';
+    if (d.err) t += ' Windows said: ' + d.err + '.';
+    if (d.seen && d.seen.length) t += ' Windows lists: ' + d.seen.map(function (x) { return x.app.replace(/\.exe$/i, '') + ' (' + x.status.toLowerCase() + (x.hidden ? ', browser, never shown' : '') + ')'; }).join(', ') + '.';
+    else if (d.music === 'running') t += ' Windows lists no media apps right now.';
+    return t;
+  }
+  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); var dg = document.getElementById('act-diag'); if (dg) dg.textContent = actDiagText(); var p = document.getElementById('now-playing'); if (p) p.innerHTML = nowPlayingHTML(); meNowPaint(); }
   function actApply() { if (C.activity && C.activity.configure) C.activity.configure(); actRefresh(); }
   function aboutHTML() {
     var v = C.version, log = C.changelog || [];
