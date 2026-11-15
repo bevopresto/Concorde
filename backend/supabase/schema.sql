@@ -924,3 +924,20 @@ begin
 end $$;
 revoke all on function public.unsend_message(uuid) from public, anon;
 grant execute on function public.unsend_message(uuid) to authenticated;
+
+-- ================================================================ activity (what someone is playing / listening to)
+-- Only filled in when that person turns it on in Settings > Activity. Apps ignore it once it is older than a few minutes.
+alter table public.profiles add column if not exists activity_game text;
+alter table public.profiles add column if not exists activity_music text;
+alter table public.profiles add column if not exists activity_at timestamptz;
+
+create or replace function public.set_activity(p_game text, p_music text) returns void
+language plpgsql security definer set search_path = public as $$
+declare g text := nullif(left(regexp_replace(btrim(coalesce(p_game, '')), '[[:cntrl:]]', ' ', 'g'), 60), '');
+        m text := nullif(left(regexp_replace(btrim(coalesce(p_music, '')), '[[:cntrl:]]', ' ', 'g'), 120), '');
+begin
+  update public.profiles set activity_game = g, activity_music = m, activity_at = case when g is null and m is null then null else now() end
+   where id = auth.uid();
+end $$;
+revoke all on function public.set_activity(text, text) from public, anon;
+grant execute on function public.set_activity(text, text) to authenticated;

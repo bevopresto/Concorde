@@ -152,6 +152,10 @@ ipcMain.on('desktop:close', () => win && win.hide());
 ipcMain.on('desktop:quit', () => { quitting = true; app.quit(); });
 ipcMain.handle('desktop:is-max', () => !!(win && win.isMaximized()));
 ipcMain.handle('desktop:version', () => app.getVersion());
+
+/* Activity: what this person is playing or listening to. Off until they turn it on in Settings > Activity. */
+const activity = require('./activity')((a) => { if (win && !win.isDestroyed()) win.webContents.send('desktop:activity', a); });
+ipcMain.on('desktop:activity-config', (_e, c) => { try { activity.configure(c && typeof c === 'object' ? c : {}); } catch (e) { /* ignore a bad request */ } });
 ipcMain.handle('desktop:get-update', () => update);
 ipcMain.handle('desktop:check-update', async () => {
   if (!autoUpdater) return { ...update, state: 'unavailable' };
@@ -185,7 +189,7 @@ ipcMain.on('desktop:picked-source', (_e, id) => {
 });
 
 app.on('second-instance', showWindow);
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => { quitting = true; try { activity.stop(); } catch (e) { /* closing anyway */ } });
 app.on('window-all-closed', () => { /* stays in the tray */ });
 
 app.whenReady().then(() => {

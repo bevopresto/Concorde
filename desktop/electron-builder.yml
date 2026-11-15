@@ -6,6 +6,8 @@ directories:
 files:
   - main.js
   - preload.js
+  - activity.js
+  - games.js
   - app/**/*
   - assets/**/*
   - package.json

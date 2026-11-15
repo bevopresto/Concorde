@@ -321,6 +321,11 @@
       m.deleted = true; m.deletedAt = Date.now() - 2 * 3600 * 1000; m.reactions = []; emit('message', { conversationId: id, message: m, updated: true }); emit('conversations');
       return Promise.resolve(true);
     },
+    /* Sharing what you are playing or listening to (Settings > Activity). The prototype just remembers it on you. */
+    setActivity: function (a) {
+      var me = D.people.you; if (me) me.act = (a && (a.game || a.music)) ? { g: a.game || '', m: a.music || '', at: 9e15 } : null;
+      emit('conversations'); return Promise.resolve(true);
+    },
     toggleReaction: function (id, messageId, emoji) {
       var list = D.messages[id] || [];
       var m = list.filter(function (x) { return x.id === messageId; })[0];

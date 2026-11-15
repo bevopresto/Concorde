@@ -370,4 +370,22 @@ select public.purge_deleted_messages();
 select t_assert(not exists (select 1 from public.messages where id = :'umsg'::uuid), 'purge removes it for good');
 select t_assert(exists (select 1 from public.messages where id = :'uold'::uuid), 'other messages stay');
 
+-- ---- activity
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select public.set_activity('Elden Ring', E'Song\nTitle – Artist');
+reset role;
+select t_assert((select activity_game = 'Elden Ring' and activity_music = 'Song Title – Artist' and activity_at is not null from public.profiles where id = '00000000-0000-0000-0000-00000000000a'), 'activity saved and cleaned');
+select t_assert((select activity_game is null from public.profiles where id = '00000000-0000-0000-0000-00000000000b'), 'only my own row changes');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select public.set_activity(repeat('x', 200), '');
+reset role;
+select t_assert((select length(activity_game) = 60 and activity_music is null from public.profiles where id = '00000000-0000-0000-0000-00000000000a'), 'long names are cut, empty music clears');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select public.set_activity('', null);
+reset role;
+select t_assert((select activity_at is null from public.profiles where id = '00000000-0000-0000-0000-00000000000a'), 'clearing both removes the timestamp');
+set role authenticated; select t_as('00000000-0000-0000-0000-00000000000a');
+select t_assert(not has_function_privilege('anon', 'public.set_activity(text, text)', 'execute'), 'signed-out people cannot call set_activity');
+reset role;
+
 \echo ALL-CHECKS-RAN

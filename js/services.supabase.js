@@ -93,7 +93,7 @@
   function toPerson(r) {
     var st = r.status;
     if (r.id !== myId) st = (st === 'invisible' || !present[r.id]) ? 'offline' : st;
-    return { id: pid(r.id), name: r.name, c1: r.c1, c2: r.c2, status: st, note: r.status_text || '', avatar: r.avatar_path ? publicUrl('avatars', r.avatar_path, r._v) : null, _row: r };
+    return { id: pid(r.id), name: r.name, c1: r.c1, c2: r.c2, status: st, note: r.status_text || '', act: (r.activity_at && (r.activity_game || r.activity_music)) ? { g: r.activity_game || '', m: r.activity_music || '', at: new Date(r.activity_at).getTime() } : null, avatar: r.avatar_path ? publicUrl('avatars', r.avatar_path, r._v) : null, _row: r };
   }
   function putPerson(r) {
     var key = pid(r.id), p = toPerson(r), cur = D.people[key];
@@ -853,6 +853,17 @@
       m.deleted = true; m.deletedAt = Date.now() - 2 * 3600 * 1000; m.reactions = []; m.text = '';
       emit('message', { conversationId: id, message: m, updated: true }); emit('conversations'); return true;
     }).catch(function () { return false; });
+  };
+  /* Share (or clear) what you are playing and listening to. The row's time stamp is refreshed every couple of minutes so friends' apps know it is current. */
+  var actLast = '', actTimer = null;
+  S.setActivity = function (a) {
+    var g = (a && a.game) || '', m = (a && a.music) || '', key = g + '|' + m;
+    clearInterval(actTimer); actTimer = null;
+    if (!signedIn) return Promise.resolve(false);
+    var send = function () { return sb.rpc('set_activity', { p_game: g, p_music: m }).then(function (r) { return !r.error; }, function () { return false; }); };
+    if (key !== '|') actTimer = setInterval(function () { if (signedIn && net.online) send(); }, 2 * 60 * 1000);
+    if (key === actLast && key === '|') return Promise.resolve(true);
+    actLast = key; return send();
   };
   S.toggleReaction = function (id, messageId, emoji) {
     var m = (msgs[id] || []).filter(function (x) { return x.id === messageId; })[0]; if (!m || m._local) return Promise.resolve();

@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const listeners = {};
 function on(ch, fn) { (listeners[ch] = listeners[ch] || []).push(fn); }
-['desktop:maximized', 'desktop:update', 'desktop:cmd', 'desktop:pick-source'].forEach((ch) => {
+['desktop:maximized', 'desktop:update', 'desktop:cmd', 'desktop:pick-source', 'desktop:activity'].forEach((ch) => {
   ipcRenderer.on(ch, (_e, data) => (listeners[ch] || []).forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } }));
 });
 contextBridge.exposeInMainWorld('concordeDesktop', {
@@ -23,5 +23,7 @@ contextBridge.exposeInMainWorld('concordeDesktop', {
   onUpdate: (fn) => on('desktop:update', fn),
   onPickSource: (fn) => on('desktop:pick-source', fn),
   pickedSource: (id) => ipcRenderer.send('desktop:picked-source', id || null),
+  setActivity: (c) => ipcRenderer.send('desktop:activity-config', c),
+  onActivity: (fn) => on('desktop:activity', fn),
   version: () => ipcRenderer.invoke('desktop:version')
 });

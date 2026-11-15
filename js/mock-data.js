@@ -4,8 +4,8 @@
 
   var people = {
     you:       { id: 'you',       name: 'bevopresto', c1: '#7C5CFA', c2: '#E0549F', status: 'online', avatar: null },
-    chiroben:  { id: 'chiroben',  name: 'chiroben',   c1: '#5B8DEF', c2: '#7C5CFA', status: 'online', note: '🎧 Gaming tonight' },
-    plushpants:{ id: 'plushpants',name: 'Plushpants', c1: '#F2A07B', c2: '#E0549F', status: 'online' },
+    chiroben:  { id: 'chiroben',  name: 'chiroben',   c1: '#5B8DEF', c2: '#7C5CFA', status: 'online', note: '🎧 Gaming tonight', act: { g: 'Elden Ring', m: '', at: 9e15 } },
+    plushpants:{ id: 'plushpants',name: 'Plushpants', c1: '#F2A07B', c2: '#E0549F', status: 'online', act: { g: '', m: 'Midnight City – M83', at: 9e15 } },
     kid:       { id: 'kid',       name: 'Kid',        c1: '#3FBF8F', c2: '#5B8DEF', status: 'away' }
   };
 

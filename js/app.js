@@ -23,7 +23,15 @@
     return initial(w[0] || name);
   }
   /* What shows under someone's name: their own status message if they set one, otherwise Online / Away / etc. Safe to place in HTML. */
-  function statusLine(p) { return p && p.note ? esc(p.note) : statusText(p && p.status); }
+  /* What someone is playing or listening to, if they share it and it is current (apps refresh it every couple of minutes). */
+  var ACT_FRESH_MS = 6 * 60 * 1000;
+  function activityText(p) {
+    var a = p && p.act; if (!a || Date.now() - a.at > ACT_FRESH_MS) return '';
+    if (p.status === 'offline' || p.status === 'invisible') return '';
+    return a.g ? 'Playing ' + a.g : (a.m ? '\u266A ' + a.m : '');
+  }
+  function subText(p) { return activityText(p) || (p && p.note) || statusText(p && p.status); }
+  function statusLine(p) { return esc(subText(p)); }
   function statusText(s) { return { online: 'Online', away: 'Away', dnd: 'Do not disturb', invisible: 'Appear offline' }[s] || 'Offline'; }
   function dotKey(s) { return s === 'invisible' || !s ? 'offline' : s; }
   function quiet() { return S.getCurrentUser().status === 'dnd'; }
@@ -195,6 +203,7 @@
     state.screen = 'app'; state.signin = null; mountApp();
     var list = state.conversations;
     openConversation(list.length ? list[0].id : null); chime('join');
+    if (C.activity && C.activity.configure) C.activity.configure();
   }
 
   /* ---------- Main shell ---------- */
@@ -331,7 +340,7 @@
     if (!currentConv()) return;
     var c = currentConv(), e = entity(c), call = S.getCall(c.id), right = '';
     var sub;
-    if (c.type === 'direct') sub = person(c.with).note || statusText(person(c.with).status);
+    if (c.type === 'direct') sub = subText(person(c.with));
     else {
       var online = c.members.filter(function (m) { return person(m).status === 'online'; }).length;
       sub = c.members.length + ' members · ' + online + ' online';
@@ -641,6 +650,8 @@
   function expiredDeleted(m) { return !!(m.deleted && m.deletedAt && Date.now() - m.deletedAt > DELETED_KEEP_MS); }
   function visibleMessages() { var all = state.messages; var out = all.filter(function (m) { return !expiredDeleted(m); }); state.hiddenDeleted = all.length - out.length; return out; }
   setInterval(function () { if (state.screen === 'app' && currentConv() && state.messages.filter(expiredDeleted).length !== (state.hiddenDeleted || 0)) renderMessages(); }, 60000);
+  /* Playing/listening lines fade out by themselves once a friend stops refreshing them. */
+  setInterval(function () { if (state.screen === 'app' && state.conversations.some(function (c) { return c.type === 'direct' && person(c.with).act; })) { renderList(); renderHead(); } }, 90000);
   function renderMessages(opts) {
     opts = opts || {};
     if (!currentConv()) return;
@@ -901,7 +912,7 @@
   function renderDetails() {
     if (!currentConv()) return;
     var c = currentConv(), e = entity(c), sh = S.getShared(c.id), html;
-    var sub = c.type === 'direct' ? (person(c.with).note || statusText(person(c.with).status)) : c.members.length + ' members';
+    var sub = c.type === 'direct' ? subText(person(c.with)) : c.members.length + ' members';
     html = '<div class="details-head">' + avatarFor(c, 92, false) + '<h2>' + esc(e.name) + '</h2><p>' + esc(sub) + '</p></div>';
     if (c.type === 'group') {
       html += acc('members', 'users', 'Members', c.members.length, c.members.map(function (id) {
@@ -951,7 +962,7 @@
     });
   }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', function () { if (state.settings && state.setTab === 'voice' && liveHW()) loadHardware(); });
-  var TABS = [['profile', 'user-round', 'My profile'], ['voice', 'mic', 'Voice & Video'], ['notify', 'bell', 'Notifications'], ['look', 'palette', 'Appearance'], ['tools', 'wrench', 'Prototype tools'], ['about', 'info', 'About']];
+  var TABS = [['profile', 'user-round', 'My profile'], ['voice', 'mic', 'Voice & Video'], ['notify', 'bell', 'Notifications'], ['activity', 'gamepad-2', 'Activity'], ['look', 'palette', 'Appearance'], ['tools', 'wrench', 'Prototype tools'], ['about', 'info', 'About']];
   function tabList() {
     var t = TABS.filter(function (x) { return !(x[0] === 'tools' && C.config && C.config.backend === 'live'); });
     if (S.isOwner()) { t.splice(4, 0, ['library', 'sparkles', 'Library']); t.splice(5, 0, ['invite', 'user-plus', 'Invite a friend']); t.splice(6, 0, ['sounds', 'volume-2', 'Sounds']); }
@@ -1089,6 +1100,27 @@
     };
     inp.click();
   }
+  /* Settings > Activity: share the game you are playing and the music you are listening to. Both off until you turn them on. */
+  function actCustom() { try { var a = JSON.parse(store.get('act.custom', '[]')); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function activityHTML() {
+    var inApp = !!window.concordeDesktop, custom = actCustom(), nowTxt = actNowText();
+    return '<h2>Activity</h2><p class="pane-note">Show friends what you are playing or listening to, under your name. Both are off until you turn them on. Only the game name or the song title is shared, and it disappears when you stop or close Concorde.' + (inApp ? '' : ' This only works in the installed Windows app.') + '</p>' +
+      '<div class="set-section">' +
+      switchRow('Show the game I’m playing', 'Concorde looks for well-known games running on this computer', 'toggle-act-game', store.get('act.game', 'off') === 'on') +
+      switchRow('Show the music I’m listening to', 'Whatever Windows says is playing: Spotify, Plex, Roon, Apple Music. Web browsers are never shown.', 'toggle-act-music', store.get('act.music', 'off') === 'on') + '</div>' +
+      '<div class="set-section"><h3>What Concorde sees right now</h3><p class="pane-note" id="act-now">' + esc(nowTxt) + '</p></div>' +
+      '<div class="set-section"><h3>Add a game</h3><p class="pane-note">If one of your games isn’t recognised, add it here. The program name is the file you see in Task Manager, such as MyGame.exe.</p>' +
+      '<div class="act-add"><span class="field"><input id="act-name" type="text" placeholder="Game name" maxlength="60" aria-label="Game name"></span><span class="field"><input id="act-exe" type="text" placeholder="MyGame.exe" maxlength="80" aria-label="Program name"></span><button class="btn-pill quiet sm" data-action="act-add">Add</button></div>' +
+      (custom.length ? '<ul class="act-list">' + custom.map(function (c, i) { return '<li><span><b>' + esc(c.name) + '</b> <i>' + esc(c.exe) + '</i></span><button class="btn-pill quiet sm" data-action="act-remove" data-i="' + i + '">Remove</button></li>'; }).join('') + '</ul>' : '') + '</div>';
+  }
+  function actNowText() {
+    var cur = C.activity && C.activity.current ? C.activity.current() : null, on = store.get('act.game', 'off') === 'on' || store.get('act.music', 'off') === 'on';
+    if (!on) return 'Nothing is being shared.';
+    var bits = []; if (cur && cur.game) bits.push('Playing ' + cur.game); if (cur && cur.music) bits.push('\u266A ' + cur.music);
+    return bits.length ? 'Sharing: ' + bits.join('   ') : 'Nothing detected yet. Games are checked every 30 seconds and music every 15.';
+  }
+  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); }
+  function actApply() { if (C.activity && C.activity.configure) C.activity.configure(); actRefresh(); }
   function aboutHTML() {
     var v = C.version, log = C.changelog || [];
     var date = function (d) { return new Date(d + 'T12:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); };
@@ -1132,6 +1164,7 @@
         '<div class="set-section"><h3>Video</h3><div class="cam-row"><div class="cam-preview" id="cam-preview">' + camArt(me, true) + '<span class="stage-tag">Preview</span></div>' +
         '<div class="cam-side">' + selectHTML('cam', true) + switchRow('Mirror my video', 'Flips your picture, like a mirror.', 'toggle-mirror', state.mirror) + '</div></div></div>';
     }
+    if (tab === 'activity') return activityHTML();
     if (tab === 'notify') {
       return '<h2>Notifications</h2><div class="set-section">' +
         switchRow('Gentle sounds', 'For joining, leaving and new messages', 'toggle-sounds', state.sounds) +
@@ -1737,6 +1770,21 @@
       case 'theme':
         state.theme = t.dataset.value; store.set('theme', state.theme); applyTheme();
         document.querySelectorAll('[data-action="theme"]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === t)); }); break;
+      case 'toggle-act-game': case 'toggle-act-music': {
+        var ak = a === 'toggle-act-game' ? 'act.game' : 'act.music', aon = store.get(ak, 'off') !== 'on';
+        store.set(ak, aon ? 'on' : 'off'); t.setAttribute('aria-checked', String(aon)); actApply(); break;
+      }
+      case 'act-add': {
+        var an = ($('#act-name').value || '').trim(), ae = ($('#act-exe').value || '').trim();
+        if (!an || !ae) { toast('Add both a game name and its program name.'); break; }
+        var al = actCustom(); if (al.length >= 40) { toast('That’s plenty. Remove one first.'); break; }
+        al.push({ name: an.slice(0, 60), exe: ae.slice(0, 80) }); store.set('act.custom', JSON.stringify(al));
+        var ap = document.getElementById('set-pane'); if (ap) ap.innerHTML = activityHTML(); actApply(); break;
+      }
+      case 'act-remove': {
+        var al2 = actCustom(); al2.splice(+t.dataset.i, 1); store.set('act.custom', JSON.stringify(al2));
+        var ap2 = document.getElementById('set-pane'); if (ap2) ap2.innerHTML = activityHTML(); actApply(); break;
+      }
       case 'toggle-sounds':
         state.sounds = !state.sounds; store.set('sounds', state.sounds ? 'on' : 'off');
         t.setAttribute('aria-checked', String(state.sounds)); if (state.sounds) chime('join'); break;
@@ -1921,7 +1969,7 @@
   C.ui = C.ui || {};
   C.ui.setProfileMode = function (m) { state.profileMode = m; document.querySelectorAll('.radio-card').forEach(function (b) { b.setAttribute('aria-checked', String(b.dataset.mode === m)); }); };
   Object.assign(C.ui, {
-    state: state, store: store, overlay: overlay, esc: esc, ico: ico, avatar: avatar, person: person, entity: entity, initial: initial, statusText: statusText,
+    actRefresh: actRefresh, state: state, store: store, overlay: overlay, esc: esc, ico: ico, avatar: avatar, person: person, entity: entity, initial: initial, statusText: statusText,
     chime: chime, toast: toast, scene: scene, imagesOf: imagesOf, quiet: quiet, richText: richText, snippet: snippet, camArt: camArt, screenArt: screenArt,
     currentConv: currentConv, openConversation: openConversation, openEdit: openEdit, closePopovers: closePopovers, renderReactPopover: renderReactPopover,
     renderList: renderList, renderHead: renderHead, renderMessages: renderMessages, renderDetails: renderDetails, renderMe: renderMe, renderCall: renderCall, renderSettings: renderSettings, paintPane: paintPane,
