@@ -1378,3 +1378,9 @@ a.row-item:hover, button.row-item:hover, a.row-item:focus-visible, button.row-it
 .act-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .act-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .act-list i { opacity: .65; font-style: normal; font-size: 13px; margin-left: 6px; }
+.now-playing { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.np-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2, rgba(127,127,127,.1)); min-width: 0; }
+.np-row .ico { flex: none; }
+.np-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.np-row.none { color: var(--ink-2); }
+.np-row.none span { font-weight: 400; }

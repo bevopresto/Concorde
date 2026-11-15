@@ -1119,7 +1119,12 @@
     var bits = []; if (cur && cur.game) bits.push('Playing ' + cur.game); if (cur && cur.music) bits.push('\u266A ' + cur.music);
     return bits.length ? 'Sharing: ' + bits.join('   ') : 'Nothing detected yet. Games are checked every 30 seconds and music every 15.';
   }
-  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); }
+  function nowPlayingHTML() {
+    var cur = C.activity && C.activity.current ? C.activity.current() : null, g = cur && cur.game, m = cur && cur.music;
+    function row(icon, txt, none) { return '<div class="np-row' + (txt ? '' : ' none') + '">' + ico(icon) + '<span>' + esc(txt || none) + '</span></div>'; }
+    return row('music', m, 'No music detected') + row('gamepad-2', g, 'No game detected');
+  }
+  function actRefresh() { var n = document.getElementById('act-now'); if (n) n.textContent = actNowText(); var p = document.getElementById('now-playing'); if (p) p.innerHTML = nowPlayingHTML(); }
   function actApply() { if (C.activity && C.activity.configure) C.activity.configure(); actRefresh(); }
   function aboutHTML() {
     var v = C.version, log = C.changelog || [];
@@ -1145,7 +1150,8 @@
         '<label class="name-label" for="set-name">Display name</label><label class="field" for="set-name"><input id="set-name" type="text" value="' + esc(me.name) + '"></label>' +
         '<label class="name-label" for="set-note">Status message</label><div class="note-row"><label class="field" for="set-note"><input id="set-note" type="text" maxlength="60" placeholder="What are you up to? Words or an emoji" autocomplete="off" value="' + esc(me.note || '') + '"></label><button type="button" class="btn-round" id="note-emoji" aria-label="Pick an emoji" aria-expanded="false">' + ico('smile') + '</button></div><div class="note-emojis" id="note-emojis" hidden></div>' +
         '<input id="file-avatar" type="file" accept="image/*" hidden></div>' +
-        '<div class="set-section"><h3>Status</h3><p class="pane-note">Change it any time by clicking your card at the bottom of the chat list.</p></div>';
+        '<div class="set-section"><h3>Currently playing</h3><div class="now-playing" id="now-playing">' + nowPlayingHTML() + '</div>' +
+          '<p class="pane-note">Shown to friends only if you turn it on in <button type="button" class="link-btn" data-action="set-tab" data-tab="activity">Settings → Activity</button>.</p></div>';
     }
     if (tab === 'voice') {
       return '<h2>Voice &amp; Video</h2>' +
