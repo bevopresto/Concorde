@@ -320,24 +320,35 @@
   function setStatus(s, auto) {
     var me = S.getCurrentUser();
     if (me.status === s) return;
-    if (!auto) idle.auto = false;
+    if (!auto) setAuto(false);
     S.setStatus(s).then(function () { U.renderMe(); U.renderDetails(); if (!auto) toast(s === 'invisible' ? 'Friends will see you as offline.' : s === 'dnd' ? 'Do not disturb is on. Quiet skies.' : 'You are ' + U.statusText(s).toLowerCase() + '.'); });
   }
 
   /* ---------- Auto-away when idle ---------- */
-  var idle = { t: null, auto: false, ms: 10 * 60 * 1000 };
+  /* idle.auto remembers that Concorde (not you) set Away, even across a restart, so it can undo it. */
+  var idle = { t: null, auto: U.store.get('idleAuto', 'off') === 'on', ms: 10 * 60 * 1000, sys: false };
+  function setAuto(v) { idle.auto = v; try { U.store.set('idleAuto', v ? 'on' : 'off'); } catch (e) { /* ignore */ } }
   function wake() {
-    if (idle.auto && S.getCurrentUser().status === 'away') { idle.auto = false; setStatus('online', true); toast('Welcome back. You are online again.'); }
+    if (idle.auto && S.getCurrentUser().status === 'away') { setAuto(false); setStatus('online', true); toast('Welcome back. You are online again.'); }
     clearTimeout(idle.t);
-    if (st.autoAway) idle.t = setTimeout(goIdle, idle.ms);
+    if (st.autoAway && !idle.sys) idle.t = setTimeout(goIdle, idle.ms);
   }
   function goIdle() {
-    if (st.screen === 'app' && st.autoAway && S.getCurrentUser().status === 'online') { idle.auto = true; setStatus('away', true); toast('You look away, so Concorde marked you Away.'); }
+    if (st.screen === 'app' && st.autoAway && S.getCurrentUser().status === 'online') { setAuto(true); setStatus('away', true); toast('You look away, so Concorde marked you Away.'); }
   }
-  ['mousemove', 'keydown', 'mousedown', 'touchstart'].forEach(function (e) {
-    document.addEventListener(e, function (ev) {
+  /* In the desktop app the whole computer's idle time decides (so playing a game or using other windows is not "away"). */
+  U.sysIdle = function (sec) {
+    idle.sys = true; clearTimeout(idle.t);
+    if (idle.simulated) return;
+    var me = S.getCurrentUser(); if (!me || st.screen !== 'app') return;
+    if (st.autoAway && sec * 1000 >= idle.ms) { if (me.status === 'online') goIdle(); }
+    else if (sec < 30 && idle.auto && me.status === 'away') wake();
+  };
+  ['mousemove', 'keydown', 'mousedown', 'touchstart', 'wheel', 'focus', 'visibilitychange'].forEach(function (e) {
+    (e === 'focus' ? window : document).addEventListener(e, function (ev) {
       /* A pretend idle period lasts until your next click or key press, so you have time to look at the Away state. */
-      if (idle.simulated) { if (ev.type === 'mousemove') return; idle.simulated = false; }
+      if (ev.type === 'visibilitychange' && document.visibilityState !== 'visible') return;
+      if (idle.simulated) { if (ev.type === 'mousemove' || ev.type === 'wheel' || ev.type === 'focus' || ev.type === 'visibilitychange') return; idle.simulated = false; }
       wake();
     }, { passive: true });
   });

@@ -2,6 +2,9 @@
    Keep the wording friendly: this is for friends, not developers. */
 window.Concorde = window.Concorde || {};
 window.Concorde.changelog = [
+  { v: '0.21.11', d: '2026-11-15', items: [
+    'Fix: when Concorde marks you Away because you stepped out, it now puts you back to Online as soon as you return, even after a restart or if you only click the window.',
+    'Better: Away now follows the whole computer, so using a game or other apps no longer counts as stepping away. It still waits 10 minutes.' ] },
   { v: '0.21.10', d: '2026-11-15', items: [
     'Fix: music (and games) are now picked up on their own, without turning the switch off and on. The music reader can no longer get stuck, and restarts itself if it goes quiet.',
     'New: Settings → Activity shows what Windows reports about your media apps, which makes it easy to see where a song is getting lost.' ] },

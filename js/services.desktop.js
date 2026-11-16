@@ -38,6 +38,8 @@
     if (D.getActivity && (U.store.get('act.game', 'off') === 'on' || U.store.get('act.music', 'off') === 'on')) D.getActivity().then(actApply).catch(function () {});
   }, 20000);
 
+  if (D.onIdle) D.onIdle(function (sec) { if (U.sysIdle) U.sysIdle(Number(sec) || 0); });
+
   /* ---------- Title bar buttons ---------- */
   A['win-min'] = function () { D.minimize(); };
   A['win-max'] = function () { D.toggleMaximize(); };

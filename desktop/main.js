@@ -233,6 +233,11 @@ app.whenReady().then(() => {
     { role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }
   ] }]));
   createWindow(); createTray(); setupUpdates();
+  /* How long the whole computer has been untouched (not just this window). The page uses it for Away. */
+  const { powerMonitor } = require('electron');
+  const sendIdle = () => { try { if (win && !win.isDestroyed()) win.webContents.send('desktop:idle', powerMonitor.getSystemIdleTime()); } catch (e) { /* not ready */ } };
+  setInterval(sendIdle, 15000);
+  ['resume', 'unlock-screen'].forEach((ev) => { try { powerMonitor.on(ev, () => setTimeout(sendIdle, 1500)); } catch (e) { /* not supported */ } });
   if (SMOKE) {
     win.webContents.once('did-finish-load', () => setTimeout(async () => {
       const r = await win.webContents.executeJavaScript('JSON.stringify({desktop:!!window.concordeDesktop,backend:window.Concorde&&Concorde.config.backend,proto:location.protocol,framed:document.body.classList.contains("framed"),dsk:document.body.classList.contains("desktop")})');
